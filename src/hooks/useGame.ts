@@ -9,6 +9,7 @@ import {
   resolveCascades, SlotDef, spinGrid,
 } from '../engine';
 import { sound, WinTier } from '../sound/engine';
+import { wallet } from '../lib/wallet';
 
 export type Phase = 'idle' | 'spinning' | 'cascading' | 'celebrating';
 export type ReelPhase = 'idle' | 'spinning' | 'anticipating' | 'stopped';
@@ -52,7 +53,12 @@ export function tierFor(bestMult: number, cascades: number): WinTier {
 }
 
 export function useGame(slot: SlotDef | null) {
-  const [balance, setBalance] = useState(2_250_000);
+  const [balance, setBalanceRaw] = useState(wallet.get());
+  const setBalance = (fn: (b: number) => number) => setBalanceRaw((b) => {
+    const n = fn(b);
+    wallet.set(n);
+    return n;
+  });
   const [betIdx, setBetIdx] = useState(2);
   const [phase, setPhase] = useState<Phase>('idle');
   const [grid, setGrid] = useState<Grid | null>(null);

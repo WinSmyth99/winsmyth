@@ -237,3 +237,38 @@ textarea:focus, select:focus { outline: none; border-color: var(--highlight); bo
   .loop-track, .loop-overlay.anticipating, .reel.settled .cell, .cell.hl, .pop-wrap .cell { animation: none; }
   .loop-cell { filter: none; }
 }
+
+/* ── PHASE C: lobby, catalogue, pages ── */
+.logo-btn { background: none; border: none; padding: 0; text-align: left; cursor: pointer; }
+.lobby .hero { text-align: center; padding: 8vh 24px 5vh; }
+.lobby .hero h2 {
+  font-family: var(--font-display); font-weight: 400; font-size: 2.4rem; letter-spacing: .04em;
+  background: linear-gradient(135deg, var(--gc-primary), var(--highlight), var(--win));
+  -webkit-background-clip: text; background-clip: text; color: transparent; margin: 0 0 10px;
+}
+.lobby .hero p { color: var(--muted); max-width: 460px; margin: 0 auto 22px; line-height: 1.6; }
+.hero-cta { max-width: 300px; margin: 0 auto; display: block; }
+.row-title {
+  font-family: var(--font-display); font-weight: 400; font-size: 1.15rem; letter-spacing: .05em;
+  margin: 28px 0 14px; color: var(--text);
+}
+.row-note { font-family: var(--font-script); color: var(--highlight); font-size: 1rem; margin-left: 8px; }
+.mgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+.mcard {
+  background: linear-gradient(180deg, #1E0F42 0%, var(--bg) 100%);
+  border: 1.5px solid; border-radius: 16px; padding: 18px 16px 14px; cursor: pointer;
+  text-align: left; color: var(--text); font-family: var(--font-body);
+  transition: transform .15s, box-shadow .15s;
+}
+.mcard:hover { transform: translateY(-3px); box-shadow: 0 8px 30px rgba(255,61,165,.25); }
+.mcard-name { font-family: var(--font-display); font-weight: 400; font-size: 1.05rem; letter-spacing: .04em; text-shadow: 0 0 14px currentColor; }
+.mcard-tag { font-family: var(--font-script); color: var(--highlight); font-size: .92rem; margin: 2px 0 10px; }
+.mcard-syms { font-size: 1.5rem; display: flex; gap: 8px; margin-bottom: 12px; }
+.mcard-foot { display: flex; gap: 8px; }
+.type-tag.mine { border-color: var(--win); color: var(--win); }
+.build-page { display: grid; place-items: start center; padding-top: 5vh; }
+.build-center { width: min(440px, 92vw); }
+.machine-page { max-width: 860px; margin: 0 auto; }
+.machine-nav { display: flex; gap: 8px; margin: 14px 0; }
+.fallback-note.center { text-align: center; }
+main { padding-top: 8px; }
