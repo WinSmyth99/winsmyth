@@ -1,0 +1,26 @@
+/* Winsmyth design tokens — Vice synthwave, extracted from v19.
+   This file is the canonical token source the design-system spec
+   documents; components consume vars, never raw hexes. */
+:root {
+  --bg: #120826; --bg2: #1C0D3A; --surface: #241247; --card: #2B1655; --card2: #341C63;
+  --border: #45247A; --border2: #5C33A0;
+  --gc-primary: #FFB13D; --gc-secondary: #F08A1D; --gc-glow: rgba(255,177,61,0.30);
+  --accent: #9D5CFF; --accent2: #7B3AE8; --highlight: #FF3DA5;
+  --text: #F2ECFF; --muted: #A78FD6; --muted2: #6B549A;
+  --win: #3DE8FF; --jackpot: #FFB13D; --silver: #D8CCF2; --orange: #FF8A3D; --crimson: #FF4D6D;
+  --font-display: 'Anton', sans-serif;
+  --font-script: 'Yellowtail', cursive;
+  --font-body: 'Outfit', sans-serif;
+  --font-mono: 'Chakra Petch', sans-serif;
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; min-height: 100vh; }
+body {
+  background: var(--bg);
+  background-image:
+    radial-gradient(ellipse at 15% 10%, rgba(157,92,255,.14), transparent 50%),
+    radial-gradient(ellipse at 85% 80%, rgba(255,61,165,.10), transparent 50%),
+    linear-gradient(180deg, transparent 72%, rgba(255,61,165,.10) 100%);
+  color: var(--text);
+  font-family: var(--font-body);
+}
