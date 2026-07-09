@@ -3,7 +3,7 @@
 // scatter anticipation, drives the sound vocabulary, and paces the win
 // presentation by tier. Engine untouched.
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildStrip, CascadeOutcome, FreeSpinCtx, Grid, GridSym,
   resolveCascades, SlotDef, spinGrid,
@@ -72,6 +72,18 @@ export function useGame(slot: SlotDef | null) {
     return Array.from({ length: slot.reels }, () => buildStrip(slot));
   }, [slot]);
 
+  // Seed an idle grid the moment a machine is built, so the reels are
+  // populated before the first spin.
+  useEffect(() => {
+    if (!slot || !strips.length) return;
+    clearAllRef.current?.();
+    setGrid(spinGrid(slot, strips).grid);
+    setReelPhases(Array(slot.reels).fill('idle'));
+    setView(null); setOutcome(null); setPhase('idle');
+    setLastWin(0); setRollup(null); setTier(null);
+    setFreeSpins(0); setExpandEmoji(null);
+  }, [slot, strips]);
+
   const bet = BETS[betIdx];
 
   const clearAll = () => {
@@ -79,6 +91,8 @@ export function useGame(slot: SlotDef | null) {
     timers.current = [];
     if (raf.current) cancelAnimationFrame(raf.current);
   };
+  const clearAllRef = useRef<() => void>();
+  clearAllRef.current = clearAll;
   const after = (ms: number, fn: () => void) => {
     timers.current.push(window.setTimeout(fn, ms));
   };

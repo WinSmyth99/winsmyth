@@ -188,15 +188,22 @@ textarea:focus, select:focus { outline: none; border-color: var(--highlight); bo
   background: var(--card); border: 1px solid var(--border); border-radius: 50%;
   width: 38px; height: 38px; cursor: pointer; margin-right: 12px; font-size: 1rem;
 }
-.reel-loop { overflow: hidden; position: relative; border-radius: 12px; max-height: 100%; display: block; }
-.loop-track { display: grid; gap: 10px; animation: loop-scroll .5s linear infinite; }
-.loop-cell { filter: blur(2px) brightness(.85); }
+.reel { position: relative; }
+.loop-overlay {
+  position: absolute; inset: 0; overflow: hidden; border-radius: 12px;
+  background: var(--bg2); border: 1px solid var(--border); z-index: 2;
+}
+.loop-track { position: absolute; left: 6%; right: 6%; top: 0; animation: loop-scroll .5s linear infinite; }
+.loop-cell {
+  height: 64px; display: grid; place-items: center;
+  font-size: 1.9rem; filter: blur(2px) brightness(.85); opacity: .9;
+}
 @keyframes loop-scroll {
   from { transform: translateY(0); }
   to { transform: translateY(-50%); }
 }
-.reel.anticipating .loop-track { animation-duration: 1.1s; }
-.reel.anticipating {
+.loop-overlay.anticipating .loop-track { animation-duration: 1.1s; }
+.loop-overlay.anticipating {
   box-shadow: 0 0 0 2px var(--win), 0 0 28px rgba(61,232,255,.65);
   animation: anticip-pulse .55s ease-in-out infinite;
 }
@@ -227,6 +234,6 @@ textarea:focus, select:focus { outline: none; border-color: var(--highlight); bo
 .win-amount { font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) {
-  .loop-track, .reel.anticipating, .reel.settled .cell, .cell.hl, .pop-wrap .cell { animation: none; }
+  .loop-track, .loop-overlay.anticipating, .reel.settled .cell, .cell.hl, .pop-wrap .cell { animation: none; }
   .loop-cell { filter: none; }
 }

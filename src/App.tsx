@@ -30,24 +30,14 @@ function Reels({ slot, state }: { slot: SlotDef; state: ReturnType<typeof useGam
       <div className="reels" style={{ gridTemplateColumns: `repeat(${slot.reels}, 1fr)` }}>
         {Array.from({ length: slot.reels }, (_, reel) => {
           const rp = state.reelPhases[reel] ?? 'idle';
-          if (rp === 'spinning' || rp === 'anticipating') {
-            return (
-              <div key={reel} className={`reel reel-loop${rp === 'anticipating' ? ' anticipating' : ''}`}>
-                <div className="loop-track">
-                  {loop.map((s, i) => (
-                    <div key={i} className="cell plate-low loop-cell"><span className="cell-emoji">{s.emoji}</span></div>
-                  ))}
-                </div>
-              </div>
-            );
-          }
+          const spinningNow = rp === 'spinning' || rp === 'anticipating';
           return (
             <div key={reel} className={`reel${rp === 'stopped' ? ' settled' : ''}`}>
               {Array.from({ length: ROWS }, (_, row) => {
                 const cell = shown?.[reel]?.[row];
                 const key = `${reel}:${row}`;
-                const hl = state.view?.highlight.has(key) ?? false;
-                const pop = state.view?.popping.has(key) ?? false;
+                const hl = !spinningNow && (state.view?.highlight.has(key) ?? false);
+                const pop = !spinningNow && (state.view?.popping.has(key) ?? false);
                 return cell
                   ? (
                     <div key={row} className={pop ? 'pop-wrap' : ''}>
@@ -56,6 +46,15 @@ function Reels({ slot, state }: { slot: SlotDef; state: ReturnType<typeof useGam
                   )
                   : <div key={row} className="cell plate-low"><span className="cell-emoji">•</span></div>;
               })}
+              {spinningNow && (
+                <div className={`loop-overlay${rp === 'anticipating' ? ' anticipating' : ''}`}>
+                  <div className="loop-track">
+                    {[...loop, ...loop].map((s, i) => (
+                      <div key={i} className="loop-cell"><span className="cell-emoji">{s.emoji}</span></div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
