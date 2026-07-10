@@ -193,14 +193,25 @@ textarea:focus, select:focus { outline: none; border-color: var(--highlight); bo
   position: absolute; inset: 0; overflow: hidden; border-radius: 12px;
   background: var(--bg2); border: 1px solid var(--border); z-index: 2;
 }
-.loop-track { position: absolute; left: 6%; right: 6%; top: 0; animation: loop-scroll .5s linear infinite; }
+.loop-track {
+  position: absolute; left: 0; right: 0; top: 0;
+  display: flex; flex-direction: column; align-items: center;
+  will-change: transform;
+  animation: loop-scroll .32s linear infinite;
+}
 .loop-cell {
-  height: 64px; display: grid; place-items: center;
-  font-size: 1.9rem; filter: blur(2px) brightness(.85); opacity: .9;
+  height: 64px; flex: 0 0 64px; display: grid; place-items: center; width: 100%;
+  font-size: 1.9rem; filter: blur(1px) brightness(1.05); opacity: .92;
+}
+/* motion streak over the spinning strip so movement always reads */
+.loop-overlay::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 1;
+  background: linear-gradient(180deg,
+    rgba(18,8,38,.55) 0%, transparent 22%, transparent 78%, rgba(18,8,38,.55) 100%);
 }
 @keyframes loop-scroll {
   from { transform: translateY(0); }
-  to { transform: translateY(-50%); }
+  to { transform: translateY(-192px); } /* 3 cells × 64px — seamless because the strip repeats */
 }
 .loop-overlay.anticipating .loop-track { animation-duration: 1.1s; }
 .loop-overlay.anticipating {
@@ -272,3 +283,107 @@ textarea:focus, select:focus { outline: none; border-color: var(--highlight); bo
 .machine-nav { display: flex; gap: 8px; margin: 14px 0; }
 .fallback-note.center { text-align: center; }
 main { padding-top: 8px; }
+
+/* ── PHASE D: fidelity ── */
+.chrome-text {
+  font-family: var(--font-display); font-weight: 400; letter-spacing: .05em;
+  background: linear-gradient(180deg, #FFFFFF 20%, var(--silver) 60%, #9E90C8 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 14px var(--mc, var(--highlight)));
+}
+.machine {
+  border-color: color-mix(in srgb, var(--mc, var(--highlight)) 55%, transparent);
+  box-shadow:
+    0 0 42px color-mix(in srgb, var(--mc, var(--highlight)) 20%, transparent),
+    inset 0 0 70px rgba(10, 4, 24, .55);
+  position: relative; overflow: hidden;
+}
+/* Cabinet corner suns (signature #3), lit in the machine's colour */
+.machine::before, .machine::after {
+  content: ''; position: absolute; bottom: -40px; width: 150px; height: 150px;
+  background: radial-gradient(circle, var(--mc, var(--highlight)) 0%, transparent 62%);
+  -webkit-mask-image: repeating-linear-gradient(180deg, #000 0 7px, transparent 7px 13px);
+  mask-image: repeating-linear-gradient(180deg, #000 0 7px, transparent 7px 13px);
+  opacity: .22; pointer-events: none;
+}
+.machine::before { left: -50px; }
+.machine::after { right: -50px; }
+.marque, .fs-banner, .reels-area, .controls, .paytable, .machine-nav { position: relative; z-index: 1; }
+
+/* Richer symbol plates: top light, bottom shade, emoji above overlays */
+.cell { position: relative; }
+.cell::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255,255,255,.10), transparent 34%, rgba(0,0,0,.24));
+  pointer-events: none;
+}
+.cell-emoji { position: relative; z-index: 1; filter: drop-shadow(0 2px 3px rgba(0,0,0,.45)); }
+.plate-premium::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: linear-gradient(115deg, transparent 42%, rgba(255,226,176,.26) 50%, transparent 58%);
+  background-size: 250% 100%; background-position: 120% 0;
+  animation: shimmer 3.4s ease-in-out infinite; pointer-events: none;
+}
+@keyframes shimmer {
+  0%, 68% { background-position: 120% 0; }
+  100% { background-position: -30% 0; }
+}
+
+/* Cards lit by their own machine colour */
+.mcard {
+  border-color: color-mix(in srgb, var(--mc, var(--highlight)) 45%, transparent);
+}
+.mcard:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 30px color-mix(in srgb, var(--mc, var(--highlight)) 32%, transparent);
+}
+.mcard-name { color: var(--mc, var(--highlight)); }
+
+/* Press states */
+.btn-spin:active, .btn-build:active, .hero-cta:active { transform: translateY(1px) scale(.99); }
+.chip:active, .bet button:active, .mute:active { transform: scale(.96); }
+
+/* ── PHASE D: mobile ── */
+@media (max-width: 640px) {
+  .shell { padding: 0 10px 40px; }
+  .topbar { padding: 12px 2px; }
+  .logo h1 { font-size: 1.3rem; }
+  .logo .sub { font-size: .78rem; }
+  .wallet .gc { padding: 6px 12px; font-size: .8rem; }
+  .mute { width: 40px; height: 40px; margin-right: 8px; }
+  .machine { padding: 12px; border-radius: 16px; }
+  .marque h2 { font-size: 1.4rem; }
+  .type-tag { font-size: .58rem; }
+  .reels, .reel { gap: 6px; }
+  .cell { border-radius: 9px; }
+  .loop-cell { height: 52px; flex: 0 0 52px; font-size: 1.5rem; }
+  .loop-track { animation-name: loop-scroll-m; }
+  @keyframes loop-scroll-m {
+    from { transform: translateY(0); }
+    to { transform: translateY(-156px); } /* 3 × 52px */
+  }
+  .controls { flex-wrap: wrap; gap: 10px; }
+  .bet { order: 1; }
+  .bet button { width: 44px; height: 44px; }
+  .last-win { order: 2; min-width: 0; margin-left: auto; font-size: .9rem; }
+  .btn-spin { order: 3; flex: 1 1 100%; min-height: 52px; padding: 15px; }
+  .paytable { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .paytable table { min-width: 430px; }
+  .lobby .hero { padding: 5vh 8px 3vh; }
+  .lobby .hero h2 { font-size: 1.7rem; }
+  .mgrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .mcard { padding: 14px 12px 12px; }
+  .machine-nav { flex-wrap: wrap; }
+  .machine-nav .chip { min-height: 44px; display: inline-flex; align-items: center; }
+  .win-card { padding: 28px 30px; }
+  .win-label { font-size: 1.7rem; }
+  .build-page { padding-top: 2vh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plate-premium::before { animation: none; }
+  .mcard, .mcard:hover { transform: none; transition: none; }
+}
+
+/* ── MARK 2.1: community ── */
+.type-tag.community { border-color: var(--accent); color: var(--accent); }
