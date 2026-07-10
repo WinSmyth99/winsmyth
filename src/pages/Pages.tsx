@@ -1,7 +1,7 @@
 // Phase C pages: Lobby (catalogue), Build (the flow as its own screen),
 // Machine (the game, addressable by shareable URL).
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { GameType, SlotDef, TYPE_PROFILES } from '../engine';
 import { buildMachine } from '../generation/client';
 import { CatalogEntry } from '../lib/catalog';
@@ -15,13 +15,14 @@ export function MachineCard({ entry, onPlay }: { entry: CatalogEntry; onPlay: ()
   const { slot } = entry;
   const preview = [...slot.symbols].reverse().slice(0, 3);
   return (
-    <button className="mcard" style={{ borderColor: `${slot.color}70` }} onClick={onPlay}>
-      <div className="mcard-name" style={{ color: slot.color }}>{slot.name}</div>
+    <button className="mcard" style={{ '--mc': slot.color } as React.CSSProperties} onClick={onPlay}>
+      <div className="mcard-name">{slot.name}</div>
       <div className="mcard-tag">{slot.tagline}</div>
       <div className="mcard-syms">{preview.map((s) => <span key={s.emoji}>{s.emoji}</span>)}</div>
       <div className="mcard-foot">
         <span className="type-tag">{TYPE_PROFILES[slot.gameType].label}</span>
         {entry.source === 'session' && <span className="type-tag mine">Your build</span>}
+        {entry.source === 'community' && <span className="type-tag community">Community</span>}
       </div>
     </button>
   );
@@ -29,6 +30,7 @@ export function MachineCard({ entry, onPlay }: { entry: CatalogEntry; onPlay: ()
 
 export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: string) => void }) {
   const session = entries.filter((e) => e.source === 'session');
+  const community = entries.filter((e) => e.source === 'community');
   const presets = entries.filter((e) => e.source === 'preset');
   return (
     <div className="lobby">
@@ -45,6 +47,14 @@ export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: str
           </div>
         </section>
       )}
+      {community.length > 0 && (
+        <section>
+          <h3 className="row-title">Community machines <span className="row-note">built by players</span></h3>
+          <div className="mgrid">
+            {community.map((e) => <MachineCard key={e.id} entry={e} onPlay={() => go(`#/m/${encodeSlot(e.slot)}`)} />)}
+          </div>
+        </section>
+      )}
       <section>
         <h3 className="row-title">House catalogue</h3>
         <div className="mgrid">
@@ -55,18 +65,21 @@ export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: str
   );
 }
 
-export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: boolean) => void; go: (hash: string) => void }) {
+export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: boolean, held: boolean) => void; go: (hash: string) => void }) {
   const [prompt, setPrompt] = useState('');
   const [reels, setReels] = useState(5);
   const [gameType, setGameType] = useState<GameType>('paylines');
   const [building, setBuilding] = useState(false);
+  const [rejectedMsg, setRejectedMsg] = useState(false);
 
   const build = async () => {
     if (building || !prompt.trim()) return;
     setBuilding(true);
-    const { slot, usedFallback } = await buildMachine({ prompt, reels, gameType });
-    onBuilt(slot, usedFallback);
+    setRejectedMsg(false);
+    const { slot, usedFallback, held, rejected } = await buildMachine({ prompt, reels, gameType });
     setBuilding(false);
+    if (rejected) { setRejectedMsg(true); return; }
+    onBuilt(slot, usedFallback, held);
     go(`#/m/${encodeSlot(slot)}`);
   };
 
@@ -103,12 +116,15 @@ export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: bool
         <button className="btn-build" onClick={build} disabled={building}>
           {building ? 'BUILDING…' : 'BUILD & PLAY FREE'}
         </button>
+        {rejectedMsg && (
+          <p className="fallback-note">That theme couldn't be published. Try a different direction — the catalogue is family-friendly.</p>
+        )}
       </div>
     </div>
   );
 }
 
-export function Machine({ slot, fallbackNote, go }: { slot: SlotDef; fallbackNote: boolean; go: (hash: string) => void }) {
+export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null; go: (hash: string) => void }) {
   const { state, bets, betIdx, setBetIdx, spin } = useGame(slot);
   const [copied, setCopied] = useState(false);
 
@@ -128,15 +144,13 @@ export function Machine({ slot, fallbackNote, go }: { slot: SlotDef; fallbackNot
         <button className="chip" onClick={() => go('#/build')}>Build another</button>
         <button className="chip" onClick={share}>{copied ? 'Link copied!' : 'Share machine'}</button>
       </div>
-      <div className="machine" style={{ borderColor: `${slot.color}90` }}>
+      <div className="machine" style={{ '--mc': slot.color } as React.CSSProperties}>
         <div className="marque">
-          <h2 style={{ color: slot.color }}>{slot.name}</h2>
+          <h2 className="chrome-text">{slot.name}</h2>
           <div className="tagline">{slot.tagline}</div>
           <div className="type-tag">{TYPE_PROFILES[slot.gameType].label}</div>
         </div>
-        {fallbackNote && (
-          <p className="fallback-note center">Showing a themed preset — live generation needs the API key configured on the server.</p>
-        )}
+        {note && <p className="fallback-note center">{note}</p>}
         {state.freeSpins > 0 && (
           <div className="fs-banner">FREE SPINS ×{state.freeSpins}{state.expandEmoji ? ` — ${state.expandEmoji} pays double` : ''}</div>
         )}

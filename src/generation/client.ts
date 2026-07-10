@@ -16,6 +16,8 @@ export interface BuildRequest {
 export interface BuildOutcome {
   slot: SlotDef;
   usedFallback: boolean;
+  held: boolean;      // passed generation but held from the public catalogue
+  rejected: boolean;  // blocked by triage
 }
 
 export async function buildMachine(req: BuildRequest): Promise<BuildOutcome> {
@@ -24,11 +26,20 @@ export async function buildMachine(req: BuildRequest): Promise<BuildOutcome> {
     const res = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prompt: req.prompt }),
+      body: JSON.stringify({ prompt: req.prompt, reels: req.reels, gameType: req.gameType }),
     });
+    if (res.status === 422) {
+      // triage block: no machine, and no silent fallback either
+      return { slot: null as unknown as SlotDef, usedFallback: false, held: false, rejected: true };
+    }
     if (!res.ok) throw new Error(String(res.status));
-    const { spec } = (await res.json()) as { spec: GeneratedSpec };
-    return { slot: toSlotDef(validateAndClamp(spec), req.reels, req.gameType, vol), usedFallback: false };
+    const d = (await res.json()) as { spec: GeneratedSpec; status?: string };
+    return {
+      slot: toSlotDef(validateAndClamp(d.spec), req.reels, req.gameType, vol),
+      usedFallback: false,
+      held: d.status === 'pending',
+      rejected: false,
+    };
   } catch {
     const p = fallbackFor(req.prompt);
     return {
@@ -37,6 +48,8 @@ export async function buildMachine(req: BuildRequest): Promise<BuildOutcome> {
         req.reels, req.gameType, vol,
       ),
       usedFallback: true,
+      held: false,
+      rejected: false,
     };
   }
 }

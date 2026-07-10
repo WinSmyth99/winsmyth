@@ -9,7 +9,7 @@ import { FALLBACK_PRESETS } from '../generation/presets';
 export interface CatalogEntry {
   id: string;
   slot: SlotDef;
-  source: 'preset' | 'session';
+  source: 'preset' | 'session' | 'community';
 }
 
 export function presetEntries(): CatalogEntry[] {
@@ -25,4 +25,27 @@ export function presetEntries(): CatalogEntry[] {
       },
     };
   });
+}
+
+// Shared catalogue from the catalog function. Empty until Airtable is
+// configured — the lobby simply hides the Community row.
+import { toSlotDef, validateAndClamp } from '../generation/schema';
+
+export async function fetchCommunity(): Promise<CatalogEntry[]> {
+  try {
+    const res = await fetch('/api/catalog');
+    if (!res.ok) return [];
+    const d = await res.json() as { machines: { id: string; spec: unknown; gameType: string; reels: number }[] };
+    return (d.machines ?? []).flatMap((m) => {
+      try {
+        const gt = (['paylines', 'ways', 'scatter', 'cluster'] as GameType[]).includes(m.gameType as GameType)
+          ? m.gameType as GameType : 'paylines';
+        return [{
+          id: m.id,
+          source: 'community' as const,
+          slot: toSlotDef(validateAndClamp(m.spec), m.reels === 3 ? 3 : 5, gt, TYPE_PROFILES[gt].vol),
+        }];
+      } catch { return []; }
+    });
+  } catch { return []; }
 }

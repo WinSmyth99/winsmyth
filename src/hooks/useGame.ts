@@ -99,6 +99,7 @@ export function useGame(slot: SlotDef | null) {
   };
   const clearAllRef = useRef<() => void>();
   clearAllRef.current = clearAll;
+  useEffect(() => () => clearAllRef.current?.(), []);
   const after = (ms: number, fn: () => void) => {
     timers.current.push(window.setTimeout(fn, ms));
   };
