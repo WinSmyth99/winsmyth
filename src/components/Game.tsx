@@ -21,7 +21,10 @@ export function SymbolCell({ sym, hl, accent }: { sym: GridSym; hl?: boolean; ac
 
 export function Reels({ slot, state }: { slot: SlotDef; state: ReturnType<typeof useGame>['state'] }) {
   const shown = state.view?.grid ?? state.grid;
-  const loop = [...slot.symbols, ...slot.symbols.slice().reverse()];
+  // Fixed 12-cell pattern, rendered twice: translateY(-50%) then equals
+  // exactly one period, so the scroll loops seamlessly at any reel width.
+  const base = [...slot.symbols, ...slot.symbols.slice().reverse()];
+  const pattern = Array.from({ length: 12 }, (_, i) => base[i % base.length]);
   return (
     <div className="reels-area">
       {state.view?.badgeMult ? <div className="cascade-badge">CASCADE ×{state.view.badgeMult}</div> : null}
@@ -47,7 +50,7 @@ export function Reels({ slot, state }: { slot: SlotDef; state: ReturnType<typeof
               {spinningNow && (
                 <div className={`loop-overlay${rp === 'anticipating' ? ' anticipating' : ''}`}>
                   <div className="loop-track">
-                    {[...loop, ...loop].map((s, i) => (
+                    {[...pattern, ...pattern].map((s, i) => (
                       <div key={i} className="loop-cell"><span className="cell-emoji">{s.emoji}</span></div>
                     ))}
                   </div>
