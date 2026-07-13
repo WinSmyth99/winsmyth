@@ -1,370 +1,225 @@
-/* Winsmyth app styles — Phase A. Consumes tokens.css vars only.
-   Phase B replaces the spin/cascade motion with the choreography
-   library; these are the serviceable placeholders. */
+// The four win-evaluation mechanics behind one dispatcher — ported from
+// the v19 prototype with globals removed (free-spin context and money
+// mode are explicit parameters). The paytable contracts from v19 hold:
+// paylines 5-of-a-kind at multiplier m pays bet * m * 0.6 per full line
+// (the 300x = 450,000 GC at 2,500 bet regression anchor).
 
-.shell { max-width: 1200px; margin: 0 auto; padding: 0 20px 60px; }
+import {
+  Cell, CellRef, EvalResult, FreeSpinCtx, Grid, GridSym, MoneyMode,
+  ROWS, SlotDef, Win,
+} from './types';
 
-/* ── Top bar ── */
-.topbar {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 18px 4px; border-bottom: 1px solid var(--border);
-  box-shadow: 0 1px 0 rgba(255,61,165,.22);
-}
-.logo h1 {
-  font-family: var(--font-display); font-weight: 400; font-size: 1.8rem;
-  letter-spacing: .06em; margin: 0;
-  background: linear-gradient(135deg, #fff, var(--silver));
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-  text-shadow: 0 0 18px rgba(255,61,165,.55), 0 0 44px rgba(157,92,255,.35);
-}
-.logo .sub {
-  font-family: var(--font-script); font-size: .95rem; color: var(--highlight);
-  text-shadow: 0 0 10px rgba(255,61,165,.85);
-}
-.wallet .gc {
-  font-family: var(--font-mono); font-weight: 700; color: var(--gc-primary);
-  border: 1px solid var(--gc-primary); border-radius: 99px; padding: 8px 18px;
-  box-shadow: 0 0 16px var(--gc-glow);
-}
+// 9 paylines on a 5x3 grid (row index per reel). 3-reel machines use
+// the first 5 truncated to 3 reels.
+export const PAYLINES_5: number[][] = [
+  [1, 1, 1, 1, 1],
+  [0, 0, 0, 0, 0],
+  [2, 2, 2, 2, 2],
+  [0, 1, 2, 1, 0],
+  [2, 1, 0, 1, 2],
+  [0, 0, 1, 2, 2],
+  [2, 2, 1, 0, 0],
+  [1, 0, 1, 2, 1],
+  [1, 2, 1, 0, 1],
+];
 
-/* ── Layout ── */
-.layout { display: grid; grid-template-columns: 300px 1fr; gap: 24px; padding-top: 24px; }
-@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
-
-/* ── Build panel ── */
-.panel {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
-  padding: 20px; height: fit-content;
-}
-.panel-title { font-family: var(--font-display); font-weight: 400; font-size: 1.15rem; margin: 0 0 14px; letter-spacing: .04em; }
-.pl { font-family: var(--font-mono); font-size: .68rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
-textarea, select {
-  width: 100%; background: var(--bg2); color: var(--text);
-  border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
-  font-family: var(--font-body); font-size: .9rem; resize: vertical;
-}
-textarea:focus, select:focus { outline: none; border-color: var(--highlight); box-shadow: 0 0 0 2px rgba(255,61,165,.25); }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 16px; }
-.chip {
-  background: var(--card); border: 1px solid var(--border); color: var(--text);
-  border-radius: 99px; padding: 5px 12px; font-size: .78rem; cursor: pointer;
-  font-family: var(--font-body);
-}
-.chip:hover { border-color: var(--highlight); color: var(--highlight); }
-.cfg-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-.btn-build {
-  width: 100%; padding: 14px; border: none; border-radius: 12px; cursor: pointer;
-  font-family: var(--font-mono); font-weight: 700; letter-spacing: .16em; font-size: .85rem;
-  color: var(--bg); background: linear-gradient(135deg, var(--win), var(--highlight));
-  box-shadow: 0 0 24px rgba(255,61,165,.4);
-}
-.btn-build:disabled { opacity: .6; cursor: wait; }
-.fallback-note { font-size: .78rem; color: var(--muted); margin-top: 10px; }
-
-/* ── Stage / machine ── */
-.stage { min-height: 60vh; }
-.empty { text-align: center; padding: 12vh 24px; }
-.empty-icon { font-size: 4.5rem; filter: drop-shadow(0 0 28px rgba(255,177,61,.5)); }
-.empty h2 {
-  font-family: var(--font-display); font-weight: 400; font-size: 2.2rem; letter-spacing: .04em;
-  background: linear-gradient(135deg, var(--gc-primary), var(--highlight), var(--win));
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-.empty p { color: var(--muted); max-width: 460px; margin: 0 auto; line-height: 1.6; }
-
-.machine {
-  background: linear-gradient(180deg, #1E0F42 0%, var(--bg) 100%);
-  border: 2px solid; border-radius: 20px; padding: 22px; position: relative;
-}
-.marque { text-align: center; margin-bottom: 12px; }
-.marque h2 { font-family: var(--font-display); font-weight: 400; font-size: 1.9rem; margin: 0; letter-spacing: .05em; text-shadow: 0 0 22px currentColor; }
-.tagline { font-family: var(--font-script); color: var(--highlight); font-size: 1.05rem; }
-.type-tag { display: inline-block; margin-top: 6px; font-family: var(--font-mono); font-size: .66rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--border); border-radius: 99px; padding: 3px 10px; }
-.fs-banner {
-  text-align: center; margin: 8px 0; padding: 8px; border-radius: 10px;
-  font-family: var(--font-mono); font-weight: 700; letter-spacing: .1em;
-  color: var(--bg); background: linear-gradient(135deg, var(--win), var(--accent));
+export function paylinesFor(reels: number): number[][] {
+  if (reels >= 5) return PAYLINES_5;
+  return PAYLINES_5.slice(0, 5).map((l) => l.slice(0, reels));
 }
 
-/* ── Reels ── */
-.reels-area { position: relative; padding: 14px 0; }
-.reels-area::before, .reels-area::after {
-  content: ''; position: absolute; left: 5%; right: 5%; height: 2px;
-  background: linear-gradient(90deg, transparent, var(--highlight) 30%, var(--accent) 70%, transparent);
-  box-shadow: 0 0 14px rgba(255,61,165,.65);
-}
-.reels-area::before { top: 0; }
-.reels-area::after { bottom: 0; }
-.reels { display: grid; gap: 10px; }
-.reel { display: grid; gap: 10px; }
-.reel.spinning { animation: reel-blur var(--dur, 1s) ease-in-out; }
-@keyframes reel-blur {
-  0% { filter: blur(0); transform: translateY(0); }
-  15% { filter: blur(3px); transform: translateY(-6px); }
-  85% { filter: blur(3px); transform: translateY(6px); }
-  100% { filter: blur(0); transform: translateY(0); }
-}
-.cell {
-  aspect-ratio: 1; display: grid; place-items: center; border-radius: 12px;
-  border: 1px solid var(--border); font-size: clamp(1.6rem, 4.5vw, 2.6rem);
-  transition: transform .18s, box-shadow .18s;
-}
-.plate-low { background: linear-gradient(160deg, #DED4EE22, var(--card)); }
-.plate-mid { background: linear-gradient(160deg, #B49AE833, var(--card)); border-color: var(--border2); }
-.plate-premium { background: linear-gradient(160deg, #FFB13D2E, var(--card)); border-color: var(--gc-primary); }
-.plate-wild { background: linear-gradient(160deg, #FF3DA53A, var(--card)); border-color: var(--highlight); }
-.plate-scatter { background: linear-gradient(160deg, #3DE8FF33, var(--card)); border-color: var(--win); }
-.cell.hl { transform: scale(1.07); box-shadow: 0 0 22px rgba(61,232,255,.7); border-color: var(--win); }
-.cascade-badge {
-  position: absolute; top: -8px; left: 50%; transform: translateX(-50%); z-index: 5;
-  padding: 6px 16px; border-radius: 99px; font-family: var(--font-mono); font-weight: 700;
-  font-size: .78rem; letter-spacing: .12em; color: var(--bg);
-  background: linear-gradient(135deg, var(--gc-primary), var(--highlight));
-  box-shadow: 0 6px 24px rgba(255,61,165,.45);
+function roundPrize(raw: number, mode: MoneyMode): number {
+  return mode === 'gc'
+    ? Math.max(1, Math.floor(raw))
+    : Math.max(0.01, Math.round(raw * 100) / 100);
 }
 
-/* ── Controls ── */
-.controls { display: flex; align-items: center; justify-content: center; gap: 18px; margin: 16px 0; }
-.bet { display: flex; align-items: center; gap: 10px; }
-.bet button {
-  width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border);
-  background: var(--card); color: var(--text); font-size: 1.1rem; cursor: pointer;
-}
-.bet-val { font-family: var(--font-mono); font-weight: 700; color: var(--gc-primary); min-width: 72px; text-align: center; }
-.btn-spin {
-  padding: 14px 44px; border: none; border-radius: 99px; cursor: pointer;
-  font-family: var(--font-mono); font-weight: 700; letter-spacing: .2em; font-size: 1rem;
-  color: var(--bg); background: linear-gradient(135deg, var(--highlight), var(--accent));
-  box-shadow: 0 0 28px rgba(255,61,165,.5);
-}
-.btn-spin:disabled { opacity: .5; cursor: not-allowed; }
-.last-win { font-family: var(--font-mono); font-weight: 700; color: var(--win); min-width: 110px; }
-
-/* ── Paytable ── */
-.paytable { margin-top: 8px; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
-.paytable table { width: 100%; border-collapse: collapse; font-size: .82rem; }
-.paytable th { font-family: var(--font-mono); font-size: .64rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); text-align: right; padding: 4px 8px; }
-.paytable th:first-child, .pt-sym { text-align: left; }
-.paytable td { padding: 4px 8px; border-top: 1px solid var(--border); }
-.pt-sym span { font-size: 1.05rem; margin-right: 6px; }
-.pt-val { text-align: right; font-family: var(--font-mono); color: var(--silver); }
-.pt-note { font-size: .74rem; color: var(--muted); margin: 10px 2px 0; }
-
-/* ── Win overlay with retrowave sun ── */
-.win-overlay {
-  position: absolute; inset: 0; display: grid; place-items: center;
-  background: rgba(18,8,38,.72); border-radius: 20px; z-index: 10;
-}
-.win-card {
-  position: relative; overflow: hidden; text-align: center;
-  background: var(--surface); border: 1px solid var(--border2); border-radius: 18px;
-  padding: 40px 64px; box-shadow: 0 0 60px rgba(255,61,165,.35);
-}
-.win-card::before {
-  content: ''; position: absolute; left: 50%; bottom: -32%; width: 135%; aspect-ratio: 1;
-  transform: translateX(-50%);
-  background: radial-gradient(circle, var(--orange) 0%, var(--highlight) 45%, transparent 68%);
-  -webkit-mask-image: repeating-linear-gradient(180deg, #000 0 8px, transparent 8px 15px);
-  mask-image: repeating-linear-gradient(180deg, #000 0 8px, transparent 8px 15px);
-  opacity: .38; pointer-events: none;
-}
-.win-card > * { position: relative; }
-.win-label {
-  font-family: var(--font-display); font-weight: 400; font-size: 2.4rem; letter-spacing: .06em;
-  background: linear-gradient(135deg, var(--gc-primary), var(--highlight));
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-.win-amount { font-family: var(--font-mono); font-weight: 700; font-size: 1.5rem; color: var(--win); margin-top: 8px; }
-.win-sub { font-family: var(--font-script); color: var(--highlight); font-size: 1.1rem; margin-top: 4px; }
-
-@media (prefers-reduced-motion: reduce) {
-  .reel.spinning { animation: none; }
-  .cell { transition: none; }
-  .win-card::before { display: none; }
+function countScatters(grid: Grid, bonusEmoji: string): number {
+  let n = 0;
+  grid.forEach((col) => col.forEach((c) => { if (c.sym.emoji === bonusEmoji) n++; }));
+  return n;
 }
 
-/* ── PHASE B: choreography ── */
-.mute {
-  background: var(--card); border: 1px solid var(--border); border-radius: 50%;
-  width: 38px; height: 38px; cursor: pointer; margin-right: 12px; font-size: 1rem;
-}
-.reel { position: relative; }
-.loop-overlay {
-  position: absolute; inset: 0; overflow: hidden; border-radius: 12px;
-  background: var(--bg2); border: 1px solid var(--border); z-index: 2;
-}
-.loop-track { position: absolute; left: 6%; right: 6%; top: 0; animation: loop-scroll .5s linear infinite; }
-.loop-cell {
-  height: 64px; display: grid; place-items: center;
-  font-size: 1.9rem; filter: blur(2px) brightness(.85); opacity: .9;
-}
-@keyframes loop-scroll {
-  from { transform: translateY(0); }
-  to { transform: translateY(-50%); }
-}
-.loop-overlay.anticipating .loop-track { animation-duration: 1.1s; }
-.loop-overlay.anticipating {
-  box-shadow: 0 0 0 2px var(--win), 0 0 28px rgba(61,232,255,.65);
-  animation: anticip-pulse .55s ease-in-out infinite;
-}
-@keyframes anticip-pulse {
-  0%, 100% { box-shadow: 0 0 0 2px var(--win), 0 0 18px rgba(61,232,255,.45); }
-  50% { box-shadow: 0 0 0 3px var(--win), 0 0 38px rgba(61,232,255,.85); }
-}
-.reel.settled .cell { animation: settle .38s cubic-bezier(.2, 1.5, .45, 1); }
-.reel.settled > :nth-child(1) .cell, .reel.settled > .cell:nth-child(1) { animation-delay: 0ms; }
-.reel.settled > :nth-child(2) .cell, .reel.settled > .cell:nth-child(2) { animation-delay: 45ms; }
-.reel.settled > :nth-child(3) .cell, .reel.settled > .cell:nth-child(3) { animation-delay: 90ms; }
-@keyframes settle {
-  0% { transform: translateY(-46px); opacity: .4; }
-  70% { transform: translateY(5px); opacity: 1; }
-  100% { transform: translateY(0); }
-}
-.cell.hl { animation: win-pulse .6s ease-in-out infinite; }
-@keyframes win-pulse {
-  0%, 100% { transform: scale(1.05); box-shadow: 0 0 16px rgba(61,232,255,.55); }
-  50% { transform: scale(1.1); box-shadow: 0 0 30px rgba(61,232,255,.9); }
-}
-.pop-wrap .cell { animation: cascade-pop .3s ease-in forwards; }
-@keyframes cascade-pop {
-  0% { transform: scale(1); opacity: 1; }
-  55% { transform: scale(1.22); filter: brightness(1.7); }
-  100% { transform: scale(.1); opacity: 0; }
-}
-.win-amount { font-variant-numeric: tabular-nums; }
-
-@media (prefers-reduced-motion: reduce) {
-  .loop-track, .loop-overlay.anticipating, .reel.settled .cell, .cell.hl, .pop-wrap .cell { animation: none; }
-  .loop-cell { filter: none; }
+function expandBoost(sym: GridSym, fs?: FreeSpinCtx): number {
+  return fs && fs.expandEmoji && sym.emoji === fs.expandEmoji ? 2 : 1;
 }
 
-/* ── PHASE C: lobby, catalogue, pages ── */
-.logo-btn { background: none; border: none; padding: 0; text-align: left; cursor: pointer; }
-.lobby .hero { text-align: center; padding: 8vh 24px 5vh; }
-.lobby .hero h2 {
-  font-family: var(--font-display); font-weight: 400; font-size: 2.4rem; letter-spacing: .04em;
-  background: linear-gradient(135deg, var(--gc-primary), var(--highlight), var(--win));
-  -webkit-background-clip: text; background-clip: text; color: transparent; margin: 0 0 10px;
-}
-.lobby .hero p { color: var(--muted); max-width: 460px; margin: 0 auto 22px; line-height: 1.6; }
-.hero-cta { max-width: 300px; margin: 0 auto; display: block; }
-.row-title {
-  font-family: var(--font-display); font-weight: 400; font-size: 1.15rem; letter-spacing: .05em;
-  margin: 28px 0 14px; color: var(--text);
-}
-.row-note { font-family: var(--font-script); color: var(--highlight); font-size: 1rem; margin-left: 8px; }
-.mgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
-.mcard {
-  background: linear-gradient(180deg, #1E0F42 0%, var(--bg) 100%);
-  border: 1.5px solid; border-radius: 16px; padding: 18px 16px 14px; cursor: pointer;
-  text-align: left; color: var(--text); font-family: var(--font-body);
-  transition: transform .15s, box-shadow .15s;
-}
-.mcard:hover { transform: translateY(-3px); box-shadow: 0 8px 30px rgba(255,61,165,.25); }
-.mcard-name { font-family: var(--font-display); font-weight: 400; font-size: 1.05rem; letter-spacing: .04em; text-shadow: 0 0 14px currentColor; }
-.mcard-tag { font-family: var(--font-script); color: var(--highlight); font-size: .92rem; margin: 2px 0 10px; }
-.mcard-syms { font-size: 1.5rem; display: flex; gap: 8px; margin-bottom: 12px; }
-.mcard-foot { display: flex; gap: 8px; }
-.type-tag.mine { border-color: var(--win); color: var(--win); }
-.build-page { display: grid; place-items: start center; padding-top: 5vh; }
-.build-center { width: min(440px, 92vw); }
-.machine-page { max-width: 860px; margin: 0 auto; }
-.machine-nav { display: flex; gap: 8px; margin: 14px 0; }
-.fallback-note.center { text-align: center; }
-main { padding-top: 8px; }
+// ── CLASSIC LINES ──────────────────────────────────────────────────
+export function evaluateLines(
+  slot: SlotDef, grid: Grid, bet: number, mode: MoneyMode = 'gc', fs?: FreeSpinCtx,
+): EvalResult {
+  const lines = paylinesFor(slot.reels);
+  const wildE = slot.wildSymbol.emoji;
+  const wins: Win[] = [];
 
-/* ── PHASE D: fidelity ── */
-.chrome-text {
-  font-family: var(--font-display); font-weight: 400; letter-spacing: .05em;
-  background: linear-gradient(180deg, #FFFFFF 20%, var(--silver) 60%, #9E90C8 100%);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-  filter: drop-shadow(0 0 14px var(--mc, var(--highlight)));
-}
-.machine {
-  border-color: color-mix(in srgb, var(--mc, var(--highlight)) 55%, transparent);
-  box-shadow:
-    0 0 42px color-mix(in srgb, var(--mc, var(--highlight)) 20%, transparent),
-    inset 0 0 70px rgba(10, 4, 24, .55);
-  position: relative; overflow: hidden;
-}
-/* Cabinet corner suns (signature #3), lit in the machine's colour */
-.machine::before, .machine::after {
-  content: ''; position: absolute; bottom: -40px; width: 150px; height: 150px;
-  background: radial-gradient(circle, var(--mc, var(--highlight)) 0%, transparent 62%);
-  -webkit-mask-image: repeating-linear-gradient(180deg, #000 0 7px, transparent 7px 13px);
-  mask-image: repeating-linear-gradient(180deg, #000 0 7px, transparent 7px 13px);
-  opacity: .22; pointer-events: none;
-}
-.machine::before { left: -50px; }
-.machine::after { right: -50px; }
-.marque, .fs-banner, .reels-area, .controls, .paytable, .machine-nav { position: relative; z-index: 1; }
+  lines.forEach((line, lineIdx) => {
+    const cells: Cell[] = line.map((row, reel) => grid[reel][row]);
+    // find the base symbol: first non-wild in the run
+    let base: GridSym | null = null;
+    for (const c of cells) {
+      if (c.sym.emoji !== wildE && !c.sym.isBonus) { base = c.sym; break; }
+      if (c.sym.isBonus) return; // scatter breaks a line at its position
+    }
+    if (!base || base.multiplier <= 0) return;
+    let count = 0;
+    for (const c of cells) {
+      if (c.sym.emoji === base.emoji || c.sym.emoji === wildE) count++;
+      else break;
+    }
+    const minMatch = base.tier === 'premium' ? 2 : 3;
+    if (count < minMatch) return;
+    const nr = slot.reels;
+    let mf = count === nr ? 1 : count === nr - 1 ? 1 / 3 : count === nr - 2 ? 1 / 10 : 1 / 30;
+    mf *= expandBoost(base, fs);
+    // NOTE: bet * mult * mf * 0.6 directly — mathematically identical to
+    // perLineBet * lines * ..., but the divide-then-multiply round-trip
+    // loses 1 unit to floating point on some cells (149,999 vs 150,000).
+    // The paytable display (lib/paymath) mirrors this exact expression.
+    const raw = bet * base.multiplier * mf * 0.6;
+    const prize = roundPrize(raw, mode);
+    wins.push({
+      lineIdx, rows: line, symbol: base, count, prize,
+      cells: line.slice(0, count).map((row, reel) => ({ reel, row })),
+    });
+  });
 
-/* Richer symbol plates: top light, bottom shade, emoji above overlays */
-.cell { position: relative; }
-.cell::after {
-  content: ''; position: absolute; inset: 0; border-radius: inherit;
-  background: linear-gradient(180deg, rgba(255,255,255,.10), transparent 34%, rgba(0,0,0,.24));
-  pointer-events: none;
-}
-.cell-emoji { position: relative; z-index: 1; filter: drop-shadow(0 2px 3px rgba(0,0,0,.45)); }
-.plate-premium::before {
-  content: ''; position: absolute; inset: 0; border-radius: inherit;
-  background: linear-gradient(115deg, transparent 42%, rgba(255,226,176,.26) 50%, transparent 58%);
-  background-size: 250% 100%; background-position: 120% 0;
-  animation: shimmer 3.4s ease-in-out infinite; pointer-events: none;
-}
-@keyframes shimmer {
-  0%, 68% { background-position: 120% 0; }
-  100% { background-position: -30% 0; }
+  return {
+    totalPrize: wins.reduce((a, w) => a + w.prize, 0),
+    lineWins: wins,
+    scatterCount: countScatters(grid, slot.bonusSymbol.emoji),
+  };
 }
 
-/* Cards lit by their own machine colour */
-.mcard {
-  border-color: color-mix(in srgb, var(--mc, var(--highlight)) 45%, transparent);
-}
-.mcard:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 30px color-mix(in srgb, var(--mc, var(--highlight)) 32%, transparent);
-}
-.mcard-name { color: var(--mc, var(--highlight)); }
-
-/* Press states */
-.btn-spin:active, .btn-build:active, .hero-cta:active { transform: translateY(1px) scale(.99); }
-.chip:active, .bet button:active, .mute:active { transform: scale(.96); }
-
-/* ── PHASE D: mobile ── */
-@media (max-width: 640px) {
-  .shell { padding: 0 10px 40px; }
-  .topbar { padding: 12px 2px; }
-  .logo h1 { font-size: 1.3rem; }
-  .logo .sub { font-size: .78rem; }
-  .wallet .gc { padding: 6px 12px; font-size: .8rem; }
-  .mute { width: 40px; height: 40px; margin-right: 8px; }
-  .machine { padding: 12px; border-radius: 16px; }
-  .marque h2 { font-size: 1.4rem; }
-  .type-tag { font-size: .58rem; }
-  .reels, .reel { gap: 6px; }
-  .cell { border-radius: 9px; }
-  .loop-cell { height: 52px; font-size: 1.5rem; }
-  .controls { flex-wrap: wrap; gap: 10px; }
-  .bet { order: 1; }
-  .bet button { width: 44px; height: 44px; }
-  .last-win { order: 2; min-width: 0; margin-left: auto; font-size: .9rem; }
-  .btn-spin { order: 3; flex: 1 1 100%; min-height: 52px; padding: 15px; }
-  .paytable { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .paytable table { min-width: 430px; }
-  .lobby .hero { padding: 5vh 8px 3vh; }
-  .lobby .hero h2 { font-size: 1.7rem; }
-  .mgrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-  .mcard { padding: 14px 12px 12px; }
-  .machine-nav { flex-wrap: wrap; }
-  .machine-nav .chip { min-height: 44px; display: inline-flex; align-items: center; }
-  .win-card { padding: 28px 30px; }
-  .win-label { font-size: 1.7rem; }
-  .build-page { padding-top: 2vh; }
+// ── ALL WAYS ───────────────────────────────────────────────────────
+// Matching symbols on consecutive reels, any row. Ways = product of
+// per-reel hit counts. WAYS_UNIT: each way pays 1/9 of the full-line
+// equivalent — a tuning constant, revisited at the RTP rebalance.
+export function evaluateWays(
+  slot: SlotDef, grid: Grid, bet: number, mode: MoneyMode = 'gc', fs?: FreeSpinCtx,
+): EvalResult {
+  const wildE = slot.wildSymbol.emoji;
+  const wins: Win[] = [];
+  slot.symbols.forEach((base) => {
+    let count = 0; let ways = 1; const cells: CellRef[] = [];
+    for (let reel = 0; reel < slot.reels; reel++) {
+      const hits: number[] = [];
+      for (let row = 0; row < ROWS; row++) {
+        const e = grid[reel][row].sym.emoji;
+        if (e === base.emoji || e === wildE) hits.push(row);
+      }
+      if (!hits.length) break;
+      count++; ways *= hits.length;
+      hits.forEach((row) => cells.push({ reel, row }));
+    }
+    const minMatch = base.tier === 'premium' ? 2 : 3;
+    if (count < minMatch) return;
+    const nr = slot.reels;
+    let mf = count === nr ? 1 : count === nr - 1 ? 1 / 3 : count === nr - 2 ? 1 / 10 : 1 / 30;
+    mf *= expandBoost(base, fs);
+    const raw = (bet * base.multiplier * mf * 0.6 * ways) / 9;
+    wins.push({ symbol: base, count, ways, prize: roundPrize(raw, mode), cells });
+  });
+  return {
+    totalPrize: wins.reduce((a, w) => a + w.prize, 0),
+    lineWins: wins,
+    scatterCount: countScatters(grid, slot.bonusSymbol.emoji),
+  };
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .plate-premium::before { animation: none; }
-  .mcard, .mcard:hover { transform: none; transition: none; }
+// ── SCATTER PAYS ───────────────────────────────────────────────────
+// N+ matching anywhere. Threshold scales with grid size: 15 cells → 6+,
+// 9 cells → 4+. Wilds count toward every symbol's tally.
+export function scatterMinHit(slot: Pick<SlotDef, 'reels'>): number {
+  return Math.max(4, Math.ceil(slot.reels * ROWS * 0.4));
+}
+
+export function evaluateScatterPays(
+  slot: SlotDef, grid: Grid, bet: number, mode: MoneyMode = 'gc', fs?: FreeSpinCtx,
+): EvalResult {
+  const wildE = slot.wildSymbol.emoji;
+  const bonusE = slot.bonusSymbol.emoji;
+  const cellsBy: Record<string, CellRef[]> = {};
+  const wildCells: CellRef[] = [];
+  grid.forEach((col, reel) => col.forEach((c, row) => {
+    const e = c.sym.emoji;
+    if (e === wildE) { wildCells.push({ reel, row }); return; }
+    if (e === bonusE) return;
+    (cellsBy[e] = cellsBy[e] || []).push({ reel, row });
+  }));
+  const minHit = scatterMinHit(slot);
+  const wins: Win[] = [];
+  Object.entries(cellsBy).forEach(([e, cells]) => {
+    const n = cells.length + wildCells.length;
+    if (n < minHit) return;
+    const sym = slot.symbols.find((s) => s.emoji === e);
+    if (!sym) return;
+    let mf = n >= minHit + 5 ? 1 : n >= minHit + 2 ? 1 / 3 : 1 / 10;
+    mf *= expandBoost(sym, fs);
+    const raw = bet * sym.multiplier * mf * 0.6;
+    wins.push({ symbol: sym, count: n, prize: roundPrize(raw, mode), cells: cells.concat(wildCells) });
+  });
+  return {
+    totalPrize: wins.reduce((a, w) => a + w.prize, 0),
+    lineWins: wins,
+    scatterCount: countScatters(grid, bonusE),
+  };
+}
+
+// ── CLUSTER PAYS ───────────────────────────────────────────────────
+// 5+ matching symbols touching horizontally/vertically. Wilds join any
+// cluster but cannot seed one.
+export function evaluateCluster(
+  slot: SlotDef, grid: Grid, bet: number, mode: MoneyMode = 'gc', fs?: FreeSpinCtx,
+): EvalResult {
+  const wildE = slot.wildSymbol.emoji;
+  const wins: Win[] = [];
+  slot.symbols.forEach((base) => {
+    const seen = new Set<string>();
+    for (let reel = 0; reel < slot.reels; reel++) {
+      for (let row = 0; row < ROWS; row++) {
+        if (seen.has(`${reel}:${row}`)) continue;
+        if (grid[reel][row].sym.emoji !== base.emoji) continue;
+        const stack: [number, number][] = [[reel, row]];
+        const cluster: CellRef[] = [];
+        const vis = new Set<string>();
+        while (stack.length) {
+          const [r, w] = stack.pop()!;
+          const k = `${r}:${w}`;
+          if (vis.has(k)) continue;
+          vis.add(k);
+          const e = grid[r][w].sym.emoji;
+          if (e !== base.emoji && e !== wildE) continue;
+          cluster.push({ reel: r, row: w });
+          ([[r + 1, w], [r - 1, w], [r, w + 1], [r, w - 1]] as [number, number][]).forEach(([rr, ww]) => {
+            if (rr >= 0 && rr < slot.reels && ww >= 0 && ww < ROWS) stack.push([rr, ww]);
+          });
+        }
+        cluster.forEach((c) => seen.add(`${c.reel}:${c.row}`));
+        if (cluster.length >= 5) {
+          const sz = cluster.length;
+          let mf = sz >= 9 ? 1 : sz >= 8 ? 1 / 2 : sz >= 7 ? 1 / 3 : sz >= 6 ? 1 / 5 : 1 / 10;
+          mf *= expandBoost(base, fs);
+          const raw = bet * base.multiplier * mf * 0.6;
+          wins.push({ symbol: base, count: sz, prize: roundPrize(raw, mode), cells: cluster });
+        }
+      }
+    }
+  });
+  return {
+    totalPrize: wins.reduce((a, w) => a + w.prize, 0),
+    lineWins: wins,
+    scatterCount: countScatters(grid, slot.bonusSymbol.emoji),
+  };
+}
+
+// ── DISPATCHER — the single evaluation entry point ─────────────────
+export function evaluateGrid(
+  slot: SlotDef, grid: Grid, bet: number, mode: MoneyMode = 'gc', fs?: FreeSpinCtx,
+): EvalResult {
+  switch (slot.gameType) {
+    case 'ways': return evaluateWays(slot, grid, bet, mode, fs);
+    case 'scatter': return evaluateScatterPays(slot, grid, bet, mode, fs);
+    case 'cluster': return evaluateCluster(slot, grid, bet, mode, fs);
+    default: return evaluateLines(slot, grid, bet, mode, fs);
+  }
 }
