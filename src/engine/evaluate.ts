@@ -49,7 +49,6 @@ export function evaluateLines(
   slot: SlotDef, grid: Grid, bet: number, mode: MoneyMode = 'gc', fs?: FreeSpinCtx,
 ): EvalResult {
   const lines = paylinesFor(slot.reels);
-  const perLineBet = bet / lines.length;
   const wildE = slot.wildSymbol.emoji;
   const wins: Win[] = [];
 
@@ -72,7 +71,11 @@ export function evaluateLines(
     const nr = slot.reels;
     let mf = count === nr ? 1 : count === nr - 1 ? 1 / 3 : count === nr - 2 ? 1 / 10 : 1 / 30;
     mf *= expandBoost(base, fs);
-    const raw = perLineBet * base.multiplier * mf * lines.length * 0.6;
+    // NOTE: bet * mult * mf * 0.6 directly — mathematically identical to
+    // perLineBet * lines * ..., but the divide-then-multiply round-trip
+    // loses 1 unit to floating point on some cells (149,999 vs 150,000).
+    // The paytable display (lib/paymath) mirrors this exact expression.
+    const raw = bet * base.multiplier * mf * 0.6;
     const prize = roundPrize(raw, mode);
     wins.push({
       lineIdx, rows: line, symbol: base, count, prize,
