@@ -1,9 +1,10 @@
 // Game presentation components — extracted from App for the Phase C
 // page split. Rendering only; the useGame hook owns the clock.
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useGame } from '../hooks/useGame';
 import { GridSym, ROWS, scatterMinHit, SlotDef } from '../engine';
+import { displayPrizeGC } from '../lib/paymath';
 
 export const fmt = (n: number) => n.toLocaleString('en-US');
 
@@ -19,14 +20,23 @@ export function artIdFor(slot: SlotDef, sym: GridSym): string | null {
 
 export function SymbolCell({ sym, hl, accent, artKey }: { sym: GridSym; hl?: boolean; accent: string; artKey?: string }) {
   const tierCls = sym.isWild ? 'wild' : sym.isBonus ? 'scatter' : sym.tier ?? 'low';
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   return (
     <div
       className={`cell plate-${tierCls}${hl ? ' hl' : ''}`}
       style={sym.isWild ? { boxShadow: `0 0 18px ${accent}` } : undefined}
     >
-      {artKey
-        ? <img className="cell-art" src={`/api/art-get?key=${encodeURIComponent(artKey)}`} alt={sym.name} loading="lazy" />
-        : <span className="cell-emoji">{sym.emoji}</span>}
+      <span className="cell-emoji">{sym.emoji}</span>
+      {artKey && (
+        <img
+          key={artKey}
+          className={`cell-art${loadedKey === artKey ? ' loaded' : ''}`}
+          src={`/api/art-get?key=${encodeURIComponent(artKey)}`}
+          alt={sym.name}
+          loading="lazy"
+          onLoad={() => setLoadedKey(artKey)}
+        />
+      )}
     </div>
   );
 }
@@ -84,7 +94,7 @@ export function Reels({ slot, state, artMap }: { slot: SlotDef; state: ReturnTyp
   );
 }
 
-export function Paytable({ slot }: { slot: SlotDef }) {
+export function Paytable({ slot, artMap }: { slot: SlotDef; artMap?: ArtMap }) {
   const cols = useMemo(() => {
     if (slot.gameType === 'scatter') {
       const m0 = scatterMinHit(slot);
@@ -100,10 +110,9 @@ export function Paytable({ slot }: { slot: SlotDef }) {
         { label: '8', mf: 1 / 2 }, { label: '9+', mf: 1 },
       ];
     }
-    const u = slot.gameType === 'ways' ? 1 / 9 : 1;
     return [
-      { label: '2×', mf: u / 30, premOnly: true }, { label: '3×', mf: u / 10 },
-      { label: '4×', mf: u / 3 }, { label: '5×', mf: u },
+      { label: '2×', mf: 1 / 30, premOnly: true }, { label: '3×', mf: 1 / 10 },
+      { label: '4×', mf: 1 / 3 }, { label: '5×', mf: 1 },
     ];
   }, [slot]);
 
@@ -124,12 +133,19 @@ export function Paytable({ slot }: { slot: SlotDef }) {
         <tbody>
           {[...slot.symbols].reverse().map((s) => (
             <tr key={s.emoji}>
-              <td className="pt-sym"><span>{s.emoji}</span> {s.name}</td>
+              <td className="pt-sym">
+                {(() => {
+                  const i = slot.symbols.findIndex((x) => x.emoji === s.emoji);
+                  const key = i >= 0 ? artMap?.[`s${i}`] : undefined;
+                  return key
+                    ? <img className="pt-art" src={`/api/art-get?key=${encodeURIComponent(key)}`} alt="" />
+                    : <span>{s.emoji}</span>;
+                })()} {s.name}</td>
               {cols.map((c) => (
                 <td key={c.label} className="pt-val">
                   {('premOnly' in c && c.premOnly && s.tier !== 'premium')
                     ? '—'
-                    : fmt(Math.floor(2500 * Math.max(1, Math.round(s.multiplier * c.mf)) * 0.6))}
+                    : fmt(displayPrizeGC(2500, s.multiplier, c.mf, slot.gameType === 'ways' ? 9 : 1))}
                 </td>
               ))}
             </tr>

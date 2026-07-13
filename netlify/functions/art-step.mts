@@ -19,17 +19,70 @@ interface AssetState { key?: string; status: 'pending' | 'stored' | 'ok' | 'fall
 interface ArtState { assets: Record<string, AssetState>; done: boolean }
 
 const HOUSE_STYLE =
-  'Premium slot machine symbol tile, vice synthwave casino style: bold single centered subject, ' +
-  'clean silhouette readable at small size, neon rim lighting in hot pink and violet, deep dark ' +
-  'purple background, subtle retro sunset glow, high contrast, no text, no letters, no watermark, no border.';
+  'One single object as a bold emblem icon, perfectly centered, filling most of the frame, on a plain ' +
+  'deep dark purple backdrop. Retro-future neon aesthetic: hot pink and violet rim lighting, clean thick ' +
+  'silhouette, high contrast, crisp edges, readable when small. Purely pictorial artwork with absolutely ' +
+  'no text, no letters, no numbers, no typography, no logos, no borders, no frames.';
 
-function slotLabels(spec: { symbols: { name: string }[]; wildSymbol: { name: string }; bonusSymbol: { name: string } }) {
-  const ids = spec.symbols.map((_, i) => `s${i}`).concat(['wild', 'scatter']);
+const BG_STYLE =
+  'Wide atmospheric landscape backdrop, retro-future synthwave: deep purple night sky, glowing horizon, ' +
+  'subtle grid ground, neon accents in pink violet and cyan, dreamy depth, cinematic, dark enough for ' +
+  'bright UI to sit on top. Purely pictorial with absolutely no text, no letters, no logos, no borders.';
+
+function slotLabels(spec: { symbols: { name: string }[]; wildSymbol: { name: string }; bonusSymbol: { name: string }; themeStyle?: string }) {
+  const ids = spec.symbols.map((_, i) => `s${i}`).concat(['wild', 'scatter', 'bg']);
   const names: Record<string, string> = {};
   spec.symbols.forEach((s, i) => { names[`s${i}`] = s.name; });
-  names.wild = `${spec.wildSymbol.name} (the WILD symbol — extra ornate, golden accents)`;
-  names.scatter = `${spec.bonusSymbol.name} (the SCATTER bonus symbol — mystical, cyan energy glow)`;
+  names.wild = `${spec.wildSymbol.name}, extra ornate with golden accents`;
+  names.scatter = `${spec.bonusSymbol.name}, mystical with cyan energy glow`;
+  names.bg = '';
   return { ids, names };
+}
+
+// Registry tag: kind-scoped normalized subject. Backgrounds key on theme
+// style, making them the most reusable asset of all.
+function assetTag(sid: string, name: string, themeStyle: string): { kind: string; tag: string } {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  if (sid === 'bg') return { kind: 'background', tag: `bg:${norm(themeStyle || 'default')}` };
+  if (sid === 'wild') return { kind: 'symbol', tag: `wild:${norm(name)}` };
+  if (sid === 'scatter') return { kind: 'symbol', tag: `scatter:${norm(name)}` };
+  return { kind: 'symbol', tag: `symbol:${norm(name)}` };
+}
+
+const STYLE_VERSION = '1';
+
+async function registryLookup(base: string, token: string, kind: string, tag: string): Promise<{ recId: string; key: string; uses: number } | null> {
+  try {
+    const url = new URL(`https://api.airtable.com/v0/${base}/assets`);
+    url.searchParams.set('filterByFormula', `AND({kind}='${kind}',{subject_tag}='${tag}',{status}='ok',{style_version}='${STYLE_VERSION}')`);
+    url.searchParams.set('maxRecords', '1');
+    const r = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const rec = d.records?.[0];
+    if (!rec?.fields?.asset_key) return null;
+    return { recId: rec.id, key: rec.fields.asset_key, uses: Number(rec.fields.uses ?? 0) };
+  } catch { return null; }
+}
+
+async function registryRegister(base: string, token: string, fields: Record<string, unknown>): Promise<void> {
+  try {
+    await fetch(`https://api.airtable.com/v0/${base}/assets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ records: [{ fields }] }),
+    });
+  } catch { /* registry is an optimisation — never fail the pipeline on it */ }
+}
+
+async function registryBumpUses(base: string, token: string, recId: string, uses: number): Promise<void> {
+  try {
+    await fetch(`https://api.airtable.com/v0/${base}/assets/${recId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ fields: { uses: uses + 1 } }),
+    });
+  } catch { /* non-fatal */ }
 }
 
 async function airtableGet(base: string, token: string, id: string) {
@@ -79,9 +132,11 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
-const CRITIC_SYS = `You review slot machine symbol art. Judge the image on: (1) single clear centered subject, (2) readable as an icon at 100px, (3) coherent neon synthwave casino style, (4) contains NO text, letters, numbers, watermarks or borders, (5) not disturbing or adult. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_BG_SYS = `You review backdrop art for a game screen. FAIL (pass=false) if ANY of these: contains ANY letters, words, numbers or typography anywhere; too bright or busy for UI to sit on top (must be a dark scene); off-style (must be a synthwave neon landscape, deep purples); disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
-async function critic(pngBytes: ArrayBuffer): Promise<{ pass: boolean; reasons: string[] }> {
+const CRITIC_SYS = `You review slot machine symbol art. FAIL (pass=false) if ANY of these: contains ANY letters, words, numbers or typography anywhere in the image; depicts an entire slot machine, casino sign, poster or storefront rather than a single object emblem; multiple competing subjects or a full scene; unreadable as an icon at 100px; off-style (must be neon synthwave, dark purple ground); disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+
+async function critic(pngBytes: ArrayBuffer, isBg: boolean): Promise<{ pass: boolean; reasons: string[] }> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return { pass: true, reasons: ['critic_unavailable'] }; // don't block art on missing critic
   const b64 = Buffer.from(pngBytes).toString('base64');
@@ -91,7 +146,7 @@ async function critic(pngBytes: ArrayBuffer): Promise<{ pass: boolean; reasons: 
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 300,
-      system: CRITIC_SYS,
+      system: isBg ? CRITIC_BG_SYS : CRITIC_SYS,
       messages: [{
         role: 'user',
         content: [
@@ -109,6 +164,11 @@ async function critic(pngBytes: ArrayBuffer): Promise<{ pass: boolean; reasons: 
   } catch {
     return { pass: true, reasons: ['critic_parse_error'] };
   }
+}
+
+function counts(state: ArtState, total: number) {
+  const settled = Object.values(state.assets).filter((a) => a.status === 'ok' || a.status === 'fallback').length;
+  return { completed: settled, total };
 }
 
 function publicMap(state: ArtState): Record<string, string> {
@@ -144,7 +204,7 @@ export default async (req: Request) => {
     ids.forEach((sid) => { if (!state.assets[sid]) state.assets[sid] = { status: 'pending', attempts: 0 }; });
 
     if (state.done) {
-      return Response.json({ phase: 'done', total: ids.length, artMap: publicMap(state) });
+      return Response.json({ phase: 'done', ...counts(state, ids.length), artMap: publicMap(state) });
     }
 
     const store = getStore('machine-art');
@@ -154,9 +214,15 @@ export default async (req: Request) => {
     if (toJudge) {
       const a = state.assets[toJudge];
       const bytes = await store.get(a.key!, { type: 'arrayBuffer' });
-      const verdict = bytes ? await critic(bytes) : { pass: false, reasons: ['blob_missing'] };
+      const verdict = bytes ? await critic(bytes, toJudge === 'bg') : { pass: false, reasons: ['blob_missing'] };
       if (verdict.pass) {
         a.status = 'ok';
+        const reg = assetTag(toJudge, names[toJudge] ?? '', String(spec.themeStyle ?? 'default'));
+        await registryRegister(base, token, {
+          asset_key: a.key, kind: reg.kind, subject_tag: reg.tag,
+          theme_style: String(spec.themeStyle ?? 'default'),
+          style_version: STYLE_VERSION, status: 'ok', uses: 1, machine_id: id,
+        });
       } else if (a.attempts < 2) {
         a.status = 'pending'; // one regeneration allowed
       } else {
@@ -168,7 +234,7 @@ export default async (req: Request) => {
         art_json: JSON.stringify(state),
         art_status: allSettled ? (Object.keys(publicMap(state)).length ? 'ready' : 'fallback') : 'partial',
       });
-      return Response.json({ phase: state.done ? 'done' : 'critiqued', judged: toJudge, pass: state.assets[toJudge].status === 'ok', total: ids.length, artMap: publicMap(state) });
+      return Response.json({ phase: state.done ? 'done' : 'critiqued', judged: toJudge, pass: state.assets[toJudge].status === 'ok', ...counts(state, ids.length), artMap: publicMap(state) });
     }
 
     // Phase A: generate the next pending asset
@@ -176,18 +242,42 @@ export default async (req: Request) => {
     if (!next) {
       state.done = true;
       await airtablePatch(base, token, id, { art_json: JSON.stringify(state), art_status: Object.keys(publicMap(state)).length ? 'ready' : 'fallback' });
-      return Response.json({ phase: 'done', total: ids.length, artMap: publicMap(state) });
+      return Response.json({ phase: 'done', ...counts(state, ids.length), artMap: publicMap(state) });
     }
     const a = state.assets[next];
+    const mood = String(spec.tagline ?? '').replace(/["']/g, '');
+    const { kind, tag } = assetTag(next, names[next] ?? '', String(spec.themeStyle ?? 'default'));
+
+    // Reuse-first: any critic-passed asset with the same subject tag and
+    // style version serves immediately — no generation cost, no wait.
+    // This is the recycling loop's v1 (production architecture §5).
+    if (a.attempts === 0) {
+      const hit = await registryLookup(base, token, kind, tag);
+      if (hit) {
+        a.key = hit.key;
+        a.status = 'ok';
+        await registryBumpUses(base, token, hit.recId, hit.uses);
+        const allSettled = ids.every((sid) => ['ok', 'fallback'].includes(state.assets[sid].status));
+        state.done = allSettled;
+        await airtablePatch(base, token, id, {
+          art_json: JSON.stringify(state),
+          art_status: allSettled ? 'ready' : 'partial',
+        });
+        return Response.json({ phase: allSettled ? 'done' : 'reused', reused: next, ...counts(state, ids.length), artMap: publicMap(state) });
+      }
+    }
+
     a.attempts += 1;
-    const prompt = `${HOUSE_STYLE} Theme: ${spec.name} — ${spec.tagline}. Subject: ${names[next]}.`;
+    const prompt = next === 'bg'
+      ? `${BG_STYLE} Mood: ${mood}.`
+      : `${HOUSE_STYLE} The object: ${names[next]}. Mood: ${mood}.`;
     const bytes = await generateImage(prompt, String(spec.color ?? '#FF3DA5'));
     const key = `art/${id}/${next}-${a.attempts}.png`;
     await store.set(key, bytes);
     a.key = key;
     a.status = 'stored';
     await airtablePatch(base, token, id, { art_json: JSON.stringify(state), art_status: 'partial' });
-    return Response.json({ phase: 'generated', generated: next, total: ids.length, artMap: publicMap(state) });
+    return Response.json({ phase: 'generated', generated: next, ...counts(state, ids.length), artMap: publicMap(state) });
   } catch (e) {
     return Response.json({ error: 'art_step_failed', detail: String(e).slice(0, 300) }, { status: 502 });
   }

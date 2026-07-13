@@ -6,6 +6,7 @@ import { GameType, SlotDef, TYPE_PROFILES } from '../engine';
 import { buildMachine } from '../generation/client';
 import { CatalogEntry } from '../lib/catalog';
 import { encodeSlot } from '../lib/share';
+import { consumeForgeIntent, setForgeIntent } from '../lib/forge';
 import { useGame } from '../hooks/useGame';
 import { ArtMap, fmt, Paytable, Reels, WinOverlay } from '../components/Game';
 
@@ -80,6 +81,7 @@ export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: bool
     setBuilding(false);
     if (rejected) { setRejectedMsg(true); return; }
     onBuilt(slot, usedFallback, held);
+    if (slot.artId) setForgeIntent();
     go(`#/m/${encodeSlot(slot)}`);
   };
 
@@ -129,6 +131,8 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
   const [copied, setCopied] = useState(false);
   const [artMap, setArtMap] = useState<ArtMap>({});
   const [artBusy, setArtBusy] = useState(false);
+  const [forging, setForging] = useState(() => consumeForgeIntent() && Boolean(slot.artId));
+  const [progress, setProgress] = useState({ completed: 0, total: 10 });
   const artAlive = useRef(true);
 
   // Layer 2 loop: step the art pipeline while this page is open. Each
@@ -142,6 +146,8 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
     const id = slot.artId;
     let steps = 0;
     setArtBusy(true);
+    // Forge never traps: released on completion, on any error, or at 90s.
+    const failsafe = window.setTimeout(() => { if (artAlive.current) setForging(false); }, 90_000);
     (async () => {
       while (artAlive.current && steps < 30) {
         steps += 1;
@@ -153,13 +159,18 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
           });
           if (!res.ok) break; // unconfigured / ineligible / failed → emoji stays
           const d = await res.json();
-          if (d.artMap && artAlive.current) setArtMap(d.artMap);
+          if (!artAlive.current) break;
+          if (d.artMap) setArtMap(d.artMap);
+          if (typeof d.completed === 'number' && typeof d.total === 'number') {
+            setProgress({ completed: d.completed, total: d.total });
+          }
           if (d.phase === 'done') break;
         } catch { break; }
       }
-      if (artAlive.current) setArtBusy(false);
+      if (artAlive.current) { setArtBusy(false); setForging(false); }
+      window.clearTimeout(failsafe);
     })();
-    return () => { artAlive.current = false; };
+    return () => { artAlive.current = false; window.clearTimeout(failsafe); };
   }, [slot]);
 
   const share = async () => {
@@ -171,6 +182,32 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
     } catch { /* clipboard unavailable; the URL is already in the bar */ }
   };
 
+  if (forging) {
+    const tiles = Object.values(artMap);
+    return (
+      <div className="machine-page">
+        <div className="machine-nav">
+          <button className="chip" onClick={() => go('#/')}>← Lobby</button>
+          <button className="chip" onClick={() => setForging(false)}>Skip the wait</button>
+        </div>
+        <div className="forge-card" style={{ '--mc': slot.color } as React.CSSProperties}>
+          <h2 className="chrome-text forge-title">{slot.name}</h2>
+          <div className="tagline">The Smith is forging your machine…</div>
+          <div className="forge-tray">
+            {Array.from({ length: progress.total }, (_, i) => {
+              const key = tiles[i];
+              return key
+                ? <img key={i} className="forge-tile" src={`/api/art-get?key=${encodeURIComponent(key)}`} alt="" />
+                : <div key={i} className="forge-tile pending" style={{ animationDelay: `${i * 120}ms` }} />;
+            })}
+          </div>
+          <div className="forge-bar"><div className="forge-fill" style={{ width: `${Math.round((progress.completed / Math.max(1, progress.total)) * 100)}%` }} /></div>
+          <div className="forge-count">{progress.completed} / {progress.total} symbols forged</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="machine-page">
       <div className="machine-nav">
@@ -178,7 +215,17 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
         <button className="chip" onClick={() => go('#/build')}>Build another</button>
         <button className="chip" onClick={share}>{copied ? 'Link copied!' : 'Share machine'}</button>
       </div>
-      <div className="machine" style={{ '--mc': slot.color } as React.CSSProperties}>
+      <div
+        className="machine"
+        style={{
+          '--mc': slot.color,
+          ...(artMap.bg ? {
+            backgroundImage: `linear-gradient(rgba(18,8,38,.84), rgba(18,8,38,.93)), url(/api/art-get?key=${encodeURIComponent(artMap.bg)})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          } : {}),
+        } as React.CSSProperties}
+      >
         <div className="marque">
           <h2 className="chrome-text">{slot.name}</h2>
           <div className="tagline">{slot.tagline}</div>
@@ -205,7 +252,7 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
               : state.view ? `+${fmt(state.view.runningTotal)}` : state.lastWin > 0 ? `+${fmt(state.lastWin)}` : ''}
           </div>
         </div>
-        <Paytable slot={slot} />
+        <Paytable slot={slot} artMap={artMap} />
         {state.phase === 'celebrating' && state.outcome && state.tier && state.tier !== 'small' && (
           <WinOverlay rollup={state.rollup ?? state.outcome.totalWin} cascades={state.outcome.cascades} tier={state.tier} />
         )}
