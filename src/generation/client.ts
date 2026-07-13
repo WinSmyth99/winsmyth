@@ -20,6 +20,9 @@ export interface BuildOutcome {
   rejected: boolean;  // blocked by triage
 }
 
+// artId is attached to the slot when the machine persisted, so machine
+// pages (and share links) can load its generated art.
+
 export async function buildMachine(req: BuildRequest): Promise<BuildOutcome> {
   const vol = TYPE_PROFILES[req.gameType].vol;
   try {
@@ -33,9 +36,11 @@ export async function buildMachine(req: BuildRequest): Promise<BuildOutcome> {
       return { slot: null as unknown as SlotDef, usedFallback: false, held: false, rejected: true };
     }
     if (!res.ok) throw new Error(String(res.status));
-    const d = (await res.json()) as { spec: GeneratedSpec; status?: string };
+    const d = (await res.json()) as { spec: GeneratedSpec; status?: string; id?: string };
+    const slot = toSlotDef(validateAndClamp(d.spec), req.reels, req.gameType, vol);
+    if (typeof d.id === 'string' && /^rec[A-Za-z0-9]{14,17}$/.test(d.id)) slot.artId = d.id;
     return {
-      slot: toSlotDef(validateAndClamp(d.spec), req.reels, req.gameType, vol),
+      slot,
       usedFallback: false,
       held: d.status === 'pending',
       rejected: false,

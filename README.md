@@ -21,6 +21,9 @@ Cost note: public generation runs on your key. The function rate-limits
 per IP in-memory (per-instance — not a real quota). Set a spend cap on
 the key before sharing the URL widely.
 
+## Art pipeline (Layer 2)
+Generated symbol art via fal.ai (Recraft V3 default, swappable via `FAL_MODEL`), critic-gated by Claude vision, stored in Netlify Blobs. Setup: `docs/ART-PIPELINE-SETUP.md`. Without `FAL_KEY` machines stay emoji.
+
 ## Diagnostics
 Open `/api/health` on the deployed site: reports key/Airtable configuration and runs live read + self-cleaning write tests against the machines table. Airtable errors are returned verbatim — they name misconfigured fields.
 

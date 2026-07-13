@@ -20,7 +20,9 @@ export function decodeSlot(encoded: string): SlotDef | null {
     const gameType: GameType = ['paylines', 'ways', 'scatter', 'cluster'].includes(raw.gameType)
       ? raw.gameType : 'paylines';
     const reels = raw.reels === 3 ? 3 : 5;
-    return toSlotDef(spec, reels, gameType, TYPE_PROFILES[gameType].vol);
+    const slot = toSlotDef(spec, reels, gameType, TYPE_PROFILES[gameType].vol);
+    if (typeof raw.artId === 'string' && /^rec[A-Za-z0-9]{14,17}$/.test(raw.artId)) slot.artId = raw.artId;
+    return slot;
   } catch {
     return null;
   }

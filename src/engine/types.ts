@@ -30,6 +30,7 @@ export interface SlotDef {
   reels: number; // 3 or 5
   gameType: GameType;
   volatility: 'low' | 'medium' | 'high' | 'insane';
+  artId?: string; // Airtable record id linking generated art (app-level; engine ignores)
 }
 
 // A grid cell. Wilds/scatters are represented by marker objects so the

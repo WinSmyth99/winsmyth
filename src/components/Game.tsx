@@ -7,19 +7,31 @@ import { GridSym, ROWS, scatterMinHit, SlotDef } from '../engine';
 
 export const fmt = (n: number) => n.toLocaleString('en-US');
 
-export function SymbolCell({ sym, hl, accent }: { sym: GridSym; hl?: boolean; accent: string }) {
+// artMap: symbol slot-id → blob key, served via /api/art-get.
+export type ArtMap = Record<string, string>;
+
+export function artIdFor(slot: SlotDef, sym: GridSym): string | null {
+  if (sym.isWild) return 'wild';
+  if (sym.isBonus) return 'scatter';
+  const i = slot.symbols.findIndex((s) => s.emoji === sym.emoji);
+  return i >= 0 ? `s${i}` : null;
+}
+
+export function SymbolCell({ sym, hl, accent, artKey }: { sym: GridSym; hl?: boolean; accent: string; artKey?: string }) {
   const tierCls = sym.isWild ? 'wild' : sym.isBonus ? 'scatter' : sym.tier ?? 'low';
   return (
     <div
       className={`cell plate-${tierCls}${hl ? ' hl' : ''}`}
       style={sym.isWild ? { boxShadow: `0 0 18px ${accent}` } : undefined}
     >
-      <span className="cell-emoji">{sym.emoji}</span>
+      {artKey
+        ? <img className="cell-art" src={`/api/art-get?key=${encodeURIComponent(artKey)}`} alt={sym.name} loading="lazy" />
+        : <span className="cell-emoji">{sym.emoji}</span>}
     </div>
   );
 }
 
-export function Reels({ slot, state }: { slot: SlotDef; state: ReturnType<typeof useGame>['state'] }) {
+export function Reels({ slot, state, artMap }: { slot: SlotDef; state: ReturnType<typeof useGame>['state']; artMap?: ArtMap }) {
   const shown = state.view?.grid ?? state.grid;
   // Fixed 12-cell pattern, rendered twice: translateY(-50%) then equals
   // exactly one period, so the scroll loops seamlessly at any reel width.
@@ -39,10 +51,11 @@ export function Reels({ slot, state }: { slot: SlotDef; state: ReturnType<typeof
                 const key = `${reel}:${row}`;
                 const hl = !spinningNow && (state.view?.highlight.has(key) ?? false);
                 const pop = !spinningNow && (state.view?.popping.has(key) ?? false);
+                const ak = cell ? artIdFor(slot, cell.sym) : null;
                 return cell
                   ? (
                     <div key={row} className={pop ? 'pop-wrap' : ''}>
-                      <SymbolCell sym={cell.sym} hl={hl} accent={slot.color} />
+                      <SymbolCell sym={cell.sym} hl={hl} accent={slot.color} artKey={ak ? artMap?.[ak] : undefined} />
                     </div>
                   )
                   : <div key={row} className="cell plate-low"><span className="cell-emoji">•</span></div>;
@@ -50,9 +63,16 @@ export function Reels({ slot, state }: { slot: SlotDef; state: ReturnType<typeof
               {spinningNow && (
                 <div className={`loop-overlay${rp === 'anticipating' ? ' anticipating' : ''}`}>
                   <div className="loop-track">
-                    {[...pattern, ...pattern].map((s, i) => (
-                      <div key={i} className="loop-cell"><span className="cell-emoji">{s.emoji}</span></div>
-                    ))}
+                    {[...pattern, ...pattern].map((s, i) => {
+                      const ak = artMap?.[`s${slot.symbols.findIndex((x) => x.emoji === s.emoji)}`];
+                      return (
+                        <div key={i} className="loop-cell">
+                          {ak
+                            ? <img className="cell-art" src={`/api/art-get?key=${encodeURIComponent(ak)}`} alt="" loading="lazy" />
+                            : <span className="cell-emoji">{s.emoji}</span>}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

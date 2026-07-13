@@ -99,7 +99,7 @@ export default async (req: Request) => {
     const status = verdict === 'pass' ? 'live' : 'pending';
     const id = await persist(spec, { name: spec.name, status, game_type: gameType, reels, prompt, triage_reasons: reasons.join('; ') });
 
-    return Response.json({ spec, status, persisted: id != null });
+    return Response.json({ spec, status, persisted: id != null, id });
   } catch {
     return Response.json({ error: 'generation_failed' }, { status: 502 });
   }

@@ -1,13 +1,13 @@
 // Phase C pages: Lobby (catalogue), Build (the flow as its own screen),
 // Machine (the game, addressable by shareable URL).
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { GameType, SlotDef, TYPE_PROFILES } from '../engine';
 import { buildMachine } from '../generation/client';
 import { CatalogEntry } from '../lib/catalog';
 import { encodeSlot } from '../lib/share';
 import { useGame } from '../hooks/useGame';
-import { fmt, Paytable, Reels, WinOverlay } from '../components/Game';
+import { ArtMap, fmt, Paytable, Reels, WinOverlay } from '../components/Game';
 
 const CHIPS = ['Pirate', 'Japanese', 'Deep space', 'Italian', 'Dragon', 'Luxury', 'Wizard', 'Safari', 'Rock', 'Fiesta'];
 
@@ -127,6 +127,40 @@ export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: bool
 export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null; go: (hash: string) => void }) {
   const { state, bets, betIdx, setBetIdx, spin } = useGame(slot);
   const [copied, setCopied] = useState(false);
+  const [artMap, setArtMap] = useState<ArtMap>({});
+  const [artBusy, setArtBusy] = useState(false);
+  const artAlive = useRef(true);
+
+  // Layer 2 loop: step the art pipeline while this page is open. Each
+  // call generates or critiques ONE asset server-side; symbols upgrade
+  // from emoji as they pass the critic. Resumable — any visitor
+  // continues an unfinished machine's art.
+  useEffect(() => {
+    artAlive.current = true;
+    setArtMap({});
+    if (!slot.artId) return;
+    const id = slot.artId;
+    let steps = 0;
+    setArtBusy(true);
+    (async () => {
+      while (artAlive.current && steps < 30) {
+        steps += 1;
+        try {
+          const res = await fetch('/api/art-step', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id }),
+          });
+          if (!res.ok) break; // unconfigured / ineligible / failed → emoji stays
+          const d = await res.json();
+          if (d.artMap && artAlive.current) setArtMap(d.artMap);
+          if (d.phase === 'done') break;
+        } catch { break; }
+      }
+      if (artAlive.current) setArtBusy(false);
+    })();
+    return () => { artAlive.current = false; };
+  }, [slot]);
 
   const share = async () => {
     const url = `${location.origin}${location.pathname}#/m/${encodeSlot(slot)}`;
@@ -151,10 +185,11 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
           <div className="type-tag">{TYPE_PROFILES[slot.gameType].label}</div>
         </div>
         {note && <p className="fallback-note center">{note}</p>}
+        {artBusy && <p className="art-note">✦ Painting your machine's artwork…</p>}
         {state.freeSpins > 0 && (
           <div className="fs-banner">FREE SPINS ×{state.freeSpins}{state.expandEmoji ? ` — ${state.expandEmoji} pays double` : ''}</div>
         )}
-        <Reels slot={slot} state={state} />
+        <Reels slot={slot} state={state} artMap={artMap} />
         <div className="controls">
           <div className="bet">
             <button onClick={() => setBetIdx(Math.max(0, betIdx - 1))} disabled={state.phase !== 'idle'}>−</button>

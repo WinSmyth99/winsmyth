@@ -383,3 +383,15 @@ main { padding-top: 8px; }
 
 /* ── MARK 2.1: community ── */
 .type-tag.community { border-color: var(--accent); color: var(--accent); }
+
+/* ── MARK 2.2: generated art ── */
+.cell-art {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; border-radius: inherit;
+}
+.loop-cell { position: relative; overflow: hidden; border-radius: 12px; }
+.loop-cell .cell-art { filter: blur(1px) brightness(1.05); }
+.art-note {
+  text-align: center; font-family: var(--font-script); color: var(--win);
+  font-size: 1rem; margin: 4px 0;
+}

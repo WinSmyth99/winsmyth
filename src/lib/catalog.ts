@@ -40,11 +40,9 @@ export async function fetchCommunity(): Promise<CatalogEntry[]> {
       try {
         const gt = (['paylines', 'ways', 'scatter', 'cluster'] as GameType[]).includes(m.gameType as GameType)
           ? m.gameType as GameType : 'paylines';
-        return [{
-          id: m.id,
-          source: 'community' as const,
-          slot: toSlotDef(validateAndClamp(m.spec), m.reels === 3 ? 3 : 5, gt, TYPE_PROFILES[gt].vol),
-        }];
+        const slot = toSlotDef(validateAndClamp(m.spec), m.reels === 3 ? 3 : 5, gt, TYPE_PROFILES[gt].vol);
+        if (/^rec[A-Za-z0-9]{14,17}$/.test(m.id)) slot.artId = m.id;
+        return [{ id: m.id, source: 'community' as const, slot }];
       } catch { return []; }
     });
   } catch { return []; }
