@@ -57,13 +57,24 @@ function slotLabels(spec: { symbols: { name: string; archetype?: string }[]; wil
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 
 function assetTag(
-  sid: string, name: string, themeStyle: string, archetype?: string,
+  sid: string, name: string, themeStyle: string, archetype?: string, machineId = '',
 ): { kind: string; tag: string; archetype: string } {
   const mode = (process.env.REUSE_MODE || 'balanced').toLowerCase();
   const arch = norm(archetype || '') || 'other';
   const ts = norm(themeStyle || 'default');
 
-  if (sid === 'bg') return { kind: 'background', tag: `bg:${ts}`, archetype: 'background' };
+  if (sid === 'bg') {
+    // Backdrops are prominent — one-per-theme reads as "every machine
+    // looks the same". Reuse breadth follows REUSE_MODE:
+    //   strict     — unique backdrop per machine (no reuse)
+    //   balanced   — pool of 4 per theme style, deterministic per machine
+    //   aggressive — single per theme style (max reuse)
+    if (mode === 'strict') return { kind: 'background', tag: `bg:${ts}:m:${norm(machineId)}`, archetype: 'background' };
+    if (mode === 'aggressive') return { kind: 'background', tag: `bg:${ts}`, archetype: 'background' };
+    let h = 0;
+    for (const c of machineId) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return { kind: 'background', tag: `bg:${ts}:p${h % 4}`, archetype: 'background' };
+  }
   if (sid === 'marque') return { kind: 'symbol', tag: `marque:unique`, archetype: 'marque' };
 
   const special = sid === 'wild' || sid === 'scatter';
@@ -248,7 +259,7 @@ export default async (req: Request) => {
       const verdict = bytes ? await critic(bytes, toJudge) : { pass: false, reasons: ['blob_missing'] };
       if (verdict.pass) {
         a.status = 'ok';
-        const reg = toJudge === 'marque' ? null : assetTag(toJudge, names[toJudge] ?? '', String(spec.themeStyle ?? 'default'), archs[toJudge]);
+        const reg = toJudge === 'marque' ? null : assetTag(toJudge, names[toJudge] ?? '', String(spec.themeStyle ?? 'default'), archs[toJudge], id);
         if (reg)
           await registryRegister(base, token, {
             asset_key: a.key, kind: reg.kind, subject_tag: reg.tag, archetype: reg.archetype,
@@ -278,7 +289,7 @@ export default async (req: Request) => {
     }
     const a = state.assets[next];
     const mood = String(spec.tagline ?? '').replace(/["']/g, '');
-    const { kind, tag } = assetTag(next, names[next] ?? '', String(spec.themeStyle ?? 'default'), archs[next]);
+    const { kind, tag } = assetTag(next, names[next] ?? '', String(spec.themeStyle ?? 'default'), archs[next], id);
 
     // Reuse-first: any critic-passed asset with the same subject tag and
     // style version serves immediately — no generation cost, no wait.
