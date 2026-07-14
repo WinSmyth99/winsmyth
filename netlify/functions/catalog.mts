@@ -9,22 +9,25 @@ export default async (req: Request) => {
   if (!token || !base) return Response.json({ machines: [] });
 
   try {
+    // House machines show regardless of triage status; community machines
+    // must be live. One formula fetches both.
     const url = new URL(`https://api.airtable.com/v0/${base}/machines`);
-    url.searchParams.set('filterByFormula', "{status}='live'");
-    url.searchParams.set('pageSize', '30');
+    url.searchParams.set('filterByFormula', "OR({house}=1,{status}='live')");
+    url.searchParams.set('pageSize', '50');
     url.searchParams.set('sort[0][field]', 'created_at');
     url.searchParams.set('sort[0][direction]', 'desc');
     const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
     if (!res.ok) return Response.json({ machines: [] });
     const d = await res.json();
     const machines = (d.records ?? [])
-      .map((r: { id: string; fields: { spec_json?: string; game_type?: string; reels?: number } }) => {
+      .map((r: { id: string; fields: { spec_json?: string; game_type?: string; reels?: number; house?: unknown } }) => {
         try {
           return {
             id: r.id,
             spec: JSON.parse(r.fields.spec_json ?? ''),
             gameType: r.fields.game_type ?? 'paylines',
             reels: r.fields.reels === 3 ? 3 : 5,
+            house: r.fields.house === true || r.fields.house === 1,
           };
         } catch { return null; }
       })

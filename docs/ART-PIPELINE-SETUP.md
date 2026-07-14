@@ -99,3 +99,34 @@ Note: existing name-tagged assets from before this change keep serving
 under their old tags; new machines write archetype-tagged rows. To force
 the whole catalogue onto the new scheme, bump `style_version` handling
 (advanced — leave for the VPS migration).
+
+
+---
+
+# House catalogue — "Winsmyth Originals"
+
+Curated first-party machines that pin to the top of the lobby, always
+visible regardless of triage status. They ARE real forged machines
+(full art, marque, backdrop, sound) — just flagged as house.
+
+## Add one field to the `machines` table
+| Field name | Type |
+|---|---|
+| `house` | Checkbox |
+
+## To make a machine a house Original
+1. Build the machine on the site as normal; let it fully forge (art +
+   marque + backdrop all done).
+2. Play it, confirm it looks great.
+3. In the `machines` table, find its row and tick the `house` checkbox.
+4. Within ~60s (catalogue cache) it appears in the "Winsmyth Originals"
+   lobby row with an "Original" tag, and stays there permanently.
+
+Presets (the old emoji house list) now show ONLY as a fallback when no
+house machines exist — once you have Originals, presets disappear.
+
+## Clearing the community catalogue
+To wipe player machines but KEEP your Originals: in `machines`, filter
+`house` is unchecked, select those rows, delete. Your ticked Originals
+survive. (Deleting rows leaves their art in the registry/Blobs, which is
+fine — it means rebuilds are faster.)

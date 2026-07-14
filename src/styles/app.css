@@ -522,3 +522,6 @@ main { padding-top: 8px; }
 @media (prefers-reduced-motion: reduce) {
   .burst-coin, .page-bg { animation: none; }
 }
+
+/* House / Originals tag */
+.type-tag.house { border-color: var(--gc-primary); color: var(--gc-primary); box-shadow: 0 0 10px var(--gc-glow); }

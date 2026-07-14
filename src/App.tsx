@@ -35,10 +35,14 @@ export default function App() {
 
   const entries = useMemo<CatalogEntry[]>(() => {
     const sessionNames = new Set(session.map((e) => e.slot.name));
+    const house = community.filter((e) => e.source === 'house');
+    const communityOnly = community.filter((e) => e.source === 'community' && !sessionNames.has(e.slot.name));
+    // Presets are the fallback only when no house machines exist yet.
     return [
       ...session,
-      ...community.filter((e) => !sessionNames.has(e.slot.name)),
-      ...presetEntries(),
+      ...house,
+      ...communityOnly,
+      ...(house.length === 0 ? presetEntries() : []),
     ];
   }, [session, community]);
 

@@ -25,6 +25,7 @@ export function MachineCard({ entry, onPlay }: { entry: CatalogEntry; onPlay: ()
         <span className="type-tag">{TYPE_PROFILES[slot.gameType].label}</span>
         {entry.source === 'session' && <span className="type-tag mine">Your build</span>}
         {entry.source === 'community' && <span className="type-tag community">Community</span>}
+        {entry.source === 'house' && <span className="type-tag house">Original</span>}
       </div>
     </button>
   );
@@ -32,6 +33,7 @@ export function MachineCard({ entry, onPlay }: { entry: CatalogEntry; onPlay: ()
 
 export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: string) => void }) {
   const session = entries.filter((e) => e.source === 'session');
+  const house = entries.filter((e) => e.source === 'house');
   const community = entries.filter((e) => e.source === 'community');
   const presets = entries.filter((e) => e.source === 'preset');
   return (
@@ -46,6 +48,14 @@ export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: str
           <h3 className="row-title">Your machines <span className="row-note">this session</span></h3>
           <div className="mgrid">
             {session.map((e) => <MachineCard key={e.id} entry={e} onPlay={() => go(`#/m/${encodeSlot(e.slot)}`)} />)}
+          </div>
+        </section>
+      )}
+      {house.length > 0 && (
+        <section>
+          <h3 className="row-title">Winsmyth Originals <span className="row-note">featured machines</span></h3>
+          <div className="mgrid">
+            {house.map((e) => <MachineCard key={e.id} entry={e} onPlay={() => go(`#/m/${encodeSlot(e.slot)}`)} />)}
           </div>
         </section>
       )}
