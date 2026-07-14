@@ -3,12 +3,25 @@
 // from the Generation Quality doc replaces this at Layer 3 build-out).
 // Autoplay-safe: the context initialises on first user gesture.
 
+import { degreeHz, profileFor, SoundProfile } from './theme';
+import { SlotDef } from '../engine/types';
+
 type Tier = 'small' | 'big' | 'mega' | 'jackpot';
+
+const DEFAULT_PROFILE: SoundProfile = {
+  name: 'default', rootHz: 220, scale: [0, 3, 5, 7, 10, 12, 15, 17],
+  lead: 'triangle', bass: 'sine', brightness: 0.5,
+};
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   muted = false;
+  private profile: SoundProfile = DEFAULT_PROFILE;
+
+  setMachine(slot: SlotDef | null) {
+    this.profile = slot ? profileFor(slot) : DEFAULT_PROFILE;
+  }
 
   private ensure(): AudioContext | null {
     if (this.muted) return null;
@@ -73,51 +86,67 @@ class SoundEngine {
     src.start(t0); src.stop(t0 + dur + 0.05);
   }
 
-  // ── Vocabulary ──
+  // ── Vocabulary — every event speaks in the machine's key/timbre ──
+  private deg(degree: number, octave = 0): number {
+    return degreeHz(this.profile, degree, octave);
+  }
+
   spinStart() {
     this.noise(0.35, { gain: 0.10, from: 2400, to: 500 });
-    this.tone(180, 0.18, { type: 'triangle', gain: 0.12, slideTo: 90 });
+    this.tone(this.deg(0), 0.18, { type: this.profile.bass, gain: 0.12, slideTo: this.deg(0) / 2 });
   }
 
   reelStop(index: number) {
-    // pitched-down thunk per reel: 5th reel lands heaviest
-    const f = 220 - index * 22;
+    // thunks walk DOWN the machine's scale; last reel lands heaviest
+    const f = this.deg(-index, -1);
     this.tone(f, 0.10, { type: 'square', gain: 0.14 });
     this.noise(0.06, { gain: 0.08, from: 900, to: 200 });
   }
 
   scatterLand() {
-    this.tone(880, 0.25, { type: 'sine', gain: 0.16 });
-    this.tone(1320, 0.30, { type: 'sine', gain: 0.10, at: 0.06 });
+    this.tone(this.deg(4, 1), 0.25, { type: this.profile.lead, gain: 0.16 });
+    this.tone(this.deg(7, 1), 0.30, { type: 'sine', gain: 0.10, at: 0.06 });
   }
 
   anticipation(dur: number) {
-    // rising saw swell under the slowed reel
-    this.tone(110, dur, { type: 'sawtooth', gain: 0.06, slideTo: 340, attack: dur * 0.5 });
+    // riser sweeps from the sub-root to the octave in the machine's key
+    this.tone(this.deg(0, -1), dur, { type: 'sawtooth', gain: 0.06, slideTo: this.deg(0, 1), attack: dur * 0.5 });
     this.noise(dur, { gain: 0.03, from: 300, to: 1800 });
   }
 
   cascadePop(step: number) {
-    const base = 420 + step * 90;
-    this.tone(base, 0.09, { type: 'triangle', gain: 0.14 });
-    this.tone(base * 1.5, 0.12, { type: 'triangle', gain: 0.10, at: 0.04 });
+    // pops climb the scale with the cascade chain
+    const f = this.deg(step + 2, 1);
+    this.tone(f, 0.09, { type: this.profile.lead, gain: 0.14 });
+    this.tone(f * 1.5, 0.12, { type: this.profile.lead, gain: 0.06 + this.profile.brightness * 0.08, at: 0.04 });
   }
 
   coinTick(i: number) {
-    this.tone(1200 + (i % 5) * 160, 0.05, { type: 'square', gain: 0.05 });
+    this.tone(this.deg(i % 5, 2), 0.05, { type: 'square', gain: 0.05 });
+  }
+
+  // short signature motif when a machine opens: root → third → fifth
+  welcome() {
+    [0, 2, 4].forEach((d, i) => {
+      this.tone(this.deg(d, 1), 0.28, { type: this.profile.lead, gain: 0.10, at: i * 0.13 });
+    });
+    this.tone(this.deg(0, 0), 0.6, { type: this.profile.bass, gain: 0.06, at: 0.26 });
   }
 
   win(tier: Tier) {
-    const seq: Record<Tier, number[]> = {
-      small: [523, 659, 784],
-      big: [523, 659, 784, 1047, 1319],
-      mega: [392, 523, 659, 784, 988, 1175, 1568],
-      jackpot: [523, 659, 784, 1047, 784, 1047, 1319, 1568, 2093],
+    // fanfares as scale-degree arpeggios — genre colour comes free from
+    // the profile's scale (double-harmonic egyptian vs whole-tone space)
+    const seq: Record<Tier, [number, number][]> = {
+      small: [[0, 1], [2, 1], [4, 1]],
+      big: [[0, 1], [2, 1], [4, 1], [0, 2], [2, 2]],
+      mega: [[4, 0], [0, 1], [2, 1], [4, 1], [5, 1], [6, 1], [0, 2]],
+      jackpot: [[0, 1], [2, 1], [4, 1], [0, 2], [4, 1], [0, 2], [2, 2], [4, 2], [0, 3]],
     };
     const gap = tier === 'small' ? 0.09 : 0.11;
-    seq[tier].forEach((f, i) => {
-      this.tone(f, 0.22, { type: 'triangle', gain: 0.16, at: i * gap });
-      if (tier !== 'small') this.tone(f / 2, 0.3, { type: 'sine', gain: 0.08, at: i * gap });
+    const bright = 0.10 + this.profile.brightness * 0.10;
+    seq[tier].forEach(([d, o], i) => {
+      this.tone(this.deg(d, o), 0.22, { type: this.profile.lead, gain: bright + 0.06, at: i * gap });
+      if (tier !== 'small') this.tone(this.deg(d, o - 1), 0.3, { type: this.profile.bass, gain: 0.08, at: i * gap });
     });
   }
 }

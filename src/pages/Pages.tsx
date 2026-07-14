@@ -9,6 +9,7 @@ import { encodeSlot } from '../lib/share';
 import { consumeForgeIntent, setForgeIntent } from '../lib/forge';
 import { useGame } from '../hooks/useGame';
 import { ArtMap, fmt, Paytable, Reels, WinOverlay } from '../components/Game';
+import { sound } from '../sound/engine';
 
 const CHIPS = ['Pirate', 'Japanese', 'Deep space', 'Italian', 'Dragon', 'Luxury', 'Wizard', 'Safari', 'Rock', 'Fiesta'];
 
@@ -134,6 +135,15 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
   const [forging, setForging] = useState(() => consumeForgeIntent() && Boolean(slot.artId));
   const [progress, setProgress] = useState({ completed: 0, total: 10 });
   const artAlive = useRef(true);
+
+  // Give the machine its voice: theme-derived scale + timbre, and a
+  // short welcome motif (no-ops silently if the audio context hasn't
+  // been unlocked by a user gesture yet).
+  useEffect(() => {
+    sound.setMachine(slot);
+    sound.welcome();
+    return () => sound.setMachine(null);
+  }, [slot]);
 
   // Layer 2 loop: step the art pipeline while this page is open. Each
   // call generates or critiques ONE asset server-side; symbols upgrade
