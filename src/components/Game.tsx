@@ -163,6 +163,22 @@ export function WinOverlay({ rollup, cascades, tier }: { rollup: number; cascade
   return (
     <div className="win-overlay">
       <div className="win-card">
+      {(tier === 'mega' || tier === 'jackpot') && (
+        <div className="coin-burst" aria-hidden="true">
+          {Array.from({ length: tier === 'jackpot' ? 26 : 16 }, (_, i) => (
+            <span
+              key={i}
+              className="burst-coin"
+              style={{
+                '--dx': `${(Math.random() * 2 - 1) * 240}px`,
+                '--dy': `${-(60 + Math.random() * 260)}px`,
+                '--rot': `${(Math.random() * 2 - 1) * 520}deg`,
+                animationDelay: `${Math.random() * 0.35}s`,
+              } as React.CSSProperties}
+            >🪙</span>
+          ))}
+        </div>
+      )}
         <div className="win-label">{label}</div>
         <div className="win-amount">+{fmt(rollup)} GC</div>
         <div className="win-sub">{cascades > 1 ? `${cascades} cascades` : ''}</div>

@@ -128,7 +128,7 @@ export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: bool
 }
 
 export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null; go: (hash: string) => void }) {
-  const { state, bets, betIdx, setBetIdx, spin } = useGame(slot);
+  const { state, bets, betIdx, setBetIdx, spin, setTurbo, setAuto } = useGame(slot);
   const [copied, setCopied] = useState(false);
   const [artMap, setArtMap] = useState<ArtMap>({});
   const [artBusy, setArtBusy] = useState(false);
@@ -244,7 +244,9 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
         } as React.CSSProperties}
       >
         <div className="marque">
-          <h2 className="chrome-text">{slot.name}</h2>
+          {artMap.marque
+            ? <img className="marque-art" src={`/api/art-get?key=${encodeURIComponent(artMap.marque)}`} alt={slot.name} />
+            : <h2 className="chrome-text">{slot.name}</h2>}
           <div className="tagline">{slot.tagline}</div>
           <div className="type-tag">{TYPE_PROFILES[slot.gameType].label}</div>
         </div>
@@ -260,9 +262,25 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
             <span className="bet-val">{fmt(bets[betIdx])}</span>
             <button onClick={() => setBetIdx(Math.min(bets.length - 1, betIdx + 1))} disabled={state.phase !== 'idle'}>+</button>
           </div>
-          <button className="btn-spin" onClick={spin} disabled={state.phase !== 'idle' || (!state.freeSpins && state.balance < bets[betIdx])}>
-            {state.freeSpins > 0 ? 'FREE SPIN' : 'SPIN'}
+          <button
+            className={`btn-spin${state.auto ? ' stopping' : ''}`}
+            onClick={state.auto ? () => setAuto(false) : spin}
+            disabled={!state.auto && (state.phase !== 'idle' || (!state.freeSpins && state.balance < bets[betIdx]))}
+          >
+            {state.auto ? 'STOP' : state.freeSpins > 0 ? 'FREE SPIN' : 'SPIN'}
           </button>
+          <div className="spin-mods">
+            <button
+              className={`chip mod${state.turbo ? ' on' : ''}`}
+              onClick={() => setTurbo(!state.turbo)}
+              title="Quick spin"
+            >⚡ TURBO</button>
+            <button
+              className={`chip mod${state.auto ? ' on' : ''}`}
+              onClick={() => setAuto(!state.auto)}
+              title="Auto spin"
+            >🔁 AUTO</button>
+          </div>
           <div className="last-win">
             {state.phase === 'celebrating' && state.rollup != null
               ? `+${fmt(state.rollup)}`

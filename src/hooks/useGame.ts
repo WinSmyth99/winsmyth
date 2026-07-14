@@ -35,15 +35,18 @@ export interface GameState {
   lastWin: number;
   rollup: number | null; // animated count-up value during celebration
   tier: WinTier | null;
+  turbo: boolean;
+  auto: boolean;
 }
 
 const BETS = [500, 1000, 2500, 5000, 10000];
-const SPIN_BASE = 1000;
-const SPIN_STAGGER = 300;
-const ANTICIPATION_EXTRA = 1400;
-const STEP_HIGHLIGHT = 720;
-const STEP_POP = 300;
-const STEP_SETTLE = 340;
+// Two timing profiles: normal choreography, and turbo (quick-spin).
+// Anticipation keeps most of its length even in turbo — the scatter
+// tease is the drama; turbo trims the routine, not the theatre.
+const TIMINGS = {
+  normal: { base: 1000, stagger: 300, anticipation: 1400, highlight: 720, pop: 300, settle: 340 },
+  turbo:  { base: 450,  stagger: 120, anticipation: 900,  highlight: 420, pop: 200, settle: 220 },
+} as const;
 
 export function tierFor(bestMult: number, cascades: number): WinTier {
   if (bestMult >= 100) return 'jackpot';
@@ -61,6 +64,8 @@ export function useGame(slot: SlotDef | null) {
   });
   const [betIdx, setBetIdx] = useState(2);
   const [phase, setPhase] = useState<Phase>('idle');
+  const [turbo, setTurbo] = useState(false);
+  const [auto, setAuto] = useState(false);
   const [grid, setGrid] = useState<Grid | null>(null);
   const [reelPhases, setReelPhases] = useState<ReelPhase[]>([]);
   const [view, setView] = useState<StepView | null>(null);
@@ -117,6 +122,17 @@ export function useGame(slot: SlotDef | null) {
     raf.current = requestAnimationFrame(frame);
   };
 
+  // Autospin: when a spin fully resolves back to idle and auto is on,
+  // chain the next one — stopping the moment funds (or free spins) run
+  // out. The ref dance avoids stale-closure spins.
+  const spinRef = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    if (!auto || phase !== 'idle' || !slot) return;
+    if (freeSpins <= 0 && balance < bet) { setAuto(false); return; }
+    const t = window.setTimeout(() => spinRef.current(), 550);
+    return () => window.clearTimeout(t);
+  }, [auto, phase, slot, balance, bet, freeSpins]);
+
   const spin = useCallback(() => {
     if (!slot || phase !== 'idle') return;
     const isFree = freeSpins > 0;
@@ -136,16 +152,17 @@ export function useGame(slot: SlotDef | null) {
     const scattersByReel = landed.map((col) => col.filter((c) => c.sym.emoji === bonusE).length);
     const stopAt: number[] = [];
     const anticip: boolean[] = [];
-    let t = SPIN_BASE;
+    const T = TIMINGS[turbo ? 'turbo' : 'normal'];
+    let t = T.base;
     let seen = 0;
     for (let r = 0; r < slot.reels; r++) {
       const anticipating = seen >= 2;
       anticip.push(anticipating);
-      t += anticipating ? ANTICIPATION_EXTRA : SPIN_STAGGER;
+      t += anticipating ? T.anticipation : T.stagger;
       stopAt.push(t);
       seen += scattersByReel[r];
     }
-    const spinDone = stopAt[stopAt.length - 1] + STEP_SETTLE;
+    const spinDone = stopAt[stopAt.length - 1] + T.settle;
 
     setPhase('spinning');
     setGrid(landed);
@@ -159,9 +176,9 @@ export function useGame(slot: SlotDef | null) {
 
     stopAt.forEach((at, r) => {
       if (anticip[r]) {
-        after(at - ANTICIPATION_EXTRA, () => {
+        after(at - T.anticipation, () => {
           setReelPhases((p) => p.map((x, i) => (i === r ? 'anticipating' : x)));
-          sound.anticipation(ANTICIPATION_EXTRA / 1000);
+          sound.anticipation(T.anticipation / 1000);
         });
       }
       after(at, () => {
@@ -193,11 +210,11 @@ export function useGame(slot: SlotDef | null) {
           if (i > 0) sound.cascadePop(i);
           else sound.win('small');
         });
-        tt += STEP_HIGHLIGHT;
+        tt += T.highlight;
         after(tt, () => setView({ grid: gridBefore, highlight: new Set(), popping: cells, badgeMult: null, runningTotal: stepTotal }));
-        tt += STEP_POP;
+        tt += T.pop;
         after(tt, () => setView({ grid: s.gridAfter, highlight: new Set(), popping: new Set(), badgeMult: null, runningTotal: stepTotal }));
-        tt += STEP_SETTLE;
+        tt += T.settle;
         running = stepTotal;
       });
       after(tt, () => {
@@ -214,16 +231,18 @@ export function useGame(slot: SlotDef | null) {
         after(hold, () => setPhase('idle'));
       });
     });
-  }, [slot, phase, balance, bet, freeSpins, expandEmoji, strips]);
+  }, [slot, phase, balance, bet, freeSpins, expandEmoji, strips, turbo]);
+  spinRef.current = spin;
 
   return {
     state: {
       balance, bet, phase, grid, reelPhases, view, outcome,
+      turbo, auto,
       freeSpins, expandEmoji, lastWin, rollup, tier,
     } as GameState,
     bets: BETS,
     betIdx,
     setBetIdx,
-    spin,
+    spin, setTurbo, setAuto,
   };
 }

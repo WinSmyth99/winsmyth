@@ -24,18 +24,24 @@ const HOUSE_STYLE =
   'silhouette, high contrast, crisp edges, readable when small. Purely pictorial artwork with absolutely ' +
   'no text, no letters, no numbers, no typography, no logos, no borders, no frames.';
 
+const MARQUE_STYLE =
+  'A glowing neon sign on a dark wall, retro synthwave casino style: hot pink and violet neon tubes, ' +
+  'subtle amber accents, soft glow bloom, dark deep-purple background, wide landscape composition, ' +
+  'the sign displays ONLY the given words in stylish neon lettering — no other text, no scene, no people.';
+
 const BG_STYLE =
   'Wide atmospheric landscape backdrop, retro-future synthwave: deep purple night sky, glowing horizon, ' +
   'subtle grid ground, neon accents in pink violet and cyan, dreamy depth, cinematic, dark enough for ' +
   'bright UI to sit on top. Purely pictorial with absolutely no text, no letters, no logos, no borders.';
 
 function slotLabels(spec: { symbols: { name: string; archetype?: string }[]; wildSymbol: { name: string }; bonusSymbol: { name: string }; themeStyle?: string }) {
-  const ids = spec.symbols.map((_, i) => `s${i}`).concat(['wild', 'scatter', 'bg']);
+  const ids = spec.symbols.map((_, i) => `s${i}`).concat(['wild', 'scatter', 'marque', 'bg']);
   const names: Record<string, string> = {};
   const archs: Record<string, string> = {};
   spec.symbols.forEach((s, i) => { names[`s${i}`] = s.name; archs[`s${i}`] = s.archetype || 'other'; });
   names.wild = `${spec.wildSymbol.name}, extra ornate with golden accents`;
   names.scatter = `${spec.bonusSymbol.name}, mystical with cyan energy glow`;
+  names.marque = '';
   names.bg = '';
   return { ids, names, archs };
 }
@@ -58,6 +64,7 @@ function assetTag(
   const ts = norm(themeStyle || 'default');
 
   if (sid === 'bg') return { kind: 'background', tag: `bg:${ts}`, archetype: 'background' };
+  if (sid === 'marque') return { kind: 'symbol', tag: `marque:unique`, archetype: 'marque' };
 
   const special = sid === 'wild' || sid === 'scatter';
   const prefix = sid === 'wild' ? 'wild' : sid === 'scatter' ? 'scatter' : 'symbol';
@@ -124,7 +131,7 @@ async function airtablePatch(base: string, token: string, id: string, fields: Re
   if (!r.ok) throw new Error(`airtable_patch ${r.status}: ${(await r.text()).slice(0, 300)}`);
 }
 
-async function generateImage(prompt: string, machineColor: string): Promise<ArrayBuffer> {
+async function generateImage(prompt: string, machineColor: string, imageSize = 'square_hd'): Promise<ArrayBuffer> {
   const falKey = process.env.FAL_KEY;
   if (!falKey) throw new Error('fal_unconfigured');
   const model = process.env.FAL_MODEL || 'fal-ai/recraft-v3';
@@ -133,7 +140,7 @@ async function generateImage(prompt: string, machineColor: string): Promise<Arra
     headers: { 'content-type': 'application/json', authorization: `Key ${falKey}` },
     body: JSON.stringify({
       prompt,
-      image_size: 'square_hd',
+      image_size: imageSize,
       style: 'digital_illustration',
       colors: [hexToRgb(machineColor)].filter(Boolean),
     }),
@@ -154,11 +161,13 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
+const CRITIC_MARQUE_SYS = `You review a neon SIGN image for a game title. FAIL (pass=false) if ANY of these: no legible neon lettering at all; depicts a scene, people, or objects beyond the sign itself; too bright/light background (must be dark); disturbing or adult content. Minor stylised letter quirks are acceptable. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+
 const CRITIC_BG_SYS = `You review backdrop art for a game screen. FAIL (pass=false) if ANY of these: contains ANY letters, words, numbers or typography anywhere; too bright or busy for UI to sit on top (must be a dark scene); off-style (must be a synthwave neon landscape, deep purples); disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
 const CRITIC_SYS = `You review slot machine symbol art. FAIL (pass=false) if ANY of these: contains ANY letters, words, numbers or typography anywhere in the image; depicts an entire slot machine, casino sign, poster or storefront rather than a single object emblem; multiple competing subjects or a full scene; unreadable as an icon at 100px; off-style (must be neon synthwave, dark purple ground); disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
-async function critic(pngBytes: ArrayBuffer, isBg: boolean): Promise<{ pass: boolean; reasons: string[] }> {
+async function critic(pngBytes: ArrayBuffer, sid: string): Promise<{ pass: boolean; reasons: string[] }> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return { pass: true, reasons: ['critic_unavailable'] }; // don't block art on missing critic
   const b64 = Buffer.from(pngBytes).toString('base64');
@@ -168,7 +177,7 @@ async function critic(pngBytes: ArrayBuffer, isBg: boolean): Promise<{ pass: boo
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 300,
-      system: isBg ? CRITIC_BG_SYS : CRITIC_SYS,
+      system: sid === 'bg' ? CRITIC_BG_SYS : sid === 'marque' ? CRITIC_MARQUE_SYS : CRITIC_SYS,
       messages: [{
         role: 'user',
         content: [
@@ -236,15 +245,16 @@ export default async (req: Request) => {
     if (toJudge) {
       const a = state.assets[toJudge];
       const bytes = await store.get(a.key!, { type: 'arrayBuffer' });
-      const verdict = bytes ? await critic(bytes, toJudge === 'bg') : { pass: false, reasons: ['blob_missing'] };
+      const verdict = bytes ? await critic(bytes, toJudge) : { pass: false, reasons: ['blob_missing'] };
       if (verdict.pass) {
         a.status = 'ok';
-        const reg = assetTag(toJudge, names[toJudge] ?? '', String(spec.themeStyle ?? 'default'), archs[toJudge]);
-        await registryRegister(base, token, {
-          asset_key: a.key, kind: reg.kind, subject_tag: reg.tag, archetype: reg.archetype,
-          theme_style: String(spec.themeStyle ?? 'default'),
-          style_version: STYLE_VERSION, status: 'ok', uses: 1, machine_id: id,
-        });
+        const reg = toJudge === 'marque' ? null : assetTag(toJudge, names[toJudge] ?? '', String(spec.themeStyle ?? 'default'), archs[toJudge]);
+        if (reg)
+          await registryRegister(base, token, {
+            asset_key: a.key, kind: reg.kind, subject_tag: reg.tag, archetype: reg.archetype,
+            theme_style: String(spec.themeStyle ?? 'default'),
+            style_version: STYLE_VERSION, status: 'ok', uses: 1, machine_id: id,
+          });
       } else if (a.attempts < 2) {
         a.status = 'pending'; // one regeneration allowed
       } else {
@@ -273,7 +283,7 @@ export default async (req: Request) => {
     // Reuse-first: any critic-passed asset with the same subject tag and
     // style version serves immediately — no generation cost, no wait.
     // This is the recycling loop's v1 (production architecture §5).
-    if (a.attempts === 0) {
+    if (a.attempts === 0 && next !== 'marque') {
       const hit = await registryLookup(base, token, kind, tag);
       if (hit) {
         a.key = hit.key;
@@ -292,8 +302,14 @@ export default async (req: Request) => {
     a.attempts += 1;
     const prompt = next === 'bg'
       ? `${BG_STYLE} Mood: ${mood}.`
-      : `${HOUSE_STYLE} The object: ${names[next]}. Mood: ${mood}.`;
-    const bytes = await generateImage(prompt, String(spec.color ?? '#FF3DA5'));
+      : next === 'marque'
+        ? `${MARQUE_STYLE} The sign says: "${String(spec.name ?? '').slice(0, 30)}".`
+        : `${HOUSE_STYLE} The object: ${names[next]}. Mood: ${mood}.`;
+    const bytes = await generateImage(
+      prompt,
+      String(spec.color ?? '#FF3DA5'),
+      next === 'bg' || next === 'marque' ? 'landscape_16_9' : 'square_hd',
+    );
     const key = `art/${id}/${next}-${a.attempts}.png`;
     await store.set(key, bytes);
     a.key = key;
