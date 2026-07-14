@@ -1,3 +1,5 @@
+// Presets do not write to the registry (they are emoji-only catalogue
+// seeds and never run the art pipeline), so they carry no archetype.
 // Fallback presets — ported verbatim from v19. Used when the
 // generation API is unreachable or fails; also the seed catalogue for
 // the session-only demo.

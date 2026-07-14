@@ -29,24 +29,46 @@ const BG_STYLE =
   'subtle grid ground, neon accents in pink violet and cyan, dreamy depth, cinematic, dark enough for ' +
   'bright UI to sit on top. Purely pictorial with absolutely no text, no letters, no logos, no borders.';
 
-function slotLabels(spec: { symbols: { name: string }[]; wildSymbol: { name: string }; bonusSymbol: { name: string }; themeStyle?: string }) {
+function slotLabels(spec: { symbols: { name: string; archetype?: string }[]; wildSymbol: { name: string }; bonusSymbol: { name: string }; themeStyle?: string }) {
   const ids = spec.symbols.map((_, i) => `s${i}`).concat(['wild', 'scatter', 'bg']);
   const names: Record<string, string> = {};
-  spec.symbols.forEach((s, i) => { names[`s${i}`] = s.name; });
+  const archs: Record<string, string> = {};
+  spec.symbols.forEach((s, i) => { names[`s${i}`] = s.name; archs[`s${i}`] = s.archetype || 'other'; });
   names.wild = `${spec.wildSymbol.name}, extra ornate with golden accents`;
   names.scatter = `${spec.bonusSymbol.name}, mystical with cyan energy glow`;
   names.bg = '';
-  return { ids, names };
+  return { ids, names, archs };
 }
 
-// Registry tag: kind-scoped normalized subject. Backgrounds key on theme
-// style, making them the most reusable asset of all.
-function assetTag(sid: string, name: string, themeStyle: string): { kind: string; tag: string } {
-  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
-  if (sid === 'bg') return { kind: 'background', tag: `bg:${norm(themeStyle || 'default')}` };
-  if (sid === 'wild') return { kind: 'symbol', tag: `wild:${norm(name)}` };
-  if (sid === 'scatter') return { kind: 'symbol', tag: `scatter:${norm(name)}` };
-  return { kind: 'symbol', tag: `symbol:${norm(name)}` };
+// Registry tag: kind-scoped subject, scoped within theme style. Reuse
+// breadth is set by REUSE_MODE (specs/concept-tagging.md):
+//   strict     — name-based (max uniqueness)
+//   balanced   — archetype-based for symbols, but wild/scatter stay
+//                name-based (the symbols players learn stay bespoke)
+//   aggressive — archetype-based for everything incl. wild/scatter
+// Backgrounds always key on theme style alone (most reusable asset).
+// Falls back to name when no archetype is present, so nothing regresses.
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+
+function assetTag(
+  sid: string, name: string, themeStyle: string, archetype?: string,
+): { kind: string; tag: string; archetype: string } {
+  const mode = (process.env.REUSE_MODE || 'balanced').toLowerCase();
+  const arch = norm(archetype || '') || 'other';
+  const ts = norm(themeStyle || 'default');
+
+  if (sid === 'bg') return { kind: 'background', tag: `bg:${ts}`, archetype: 'background' };
+
+  const special = sid === 'wild' || sid === 'scatter';
+  const prefix = sid === 'wild' ? 'wild' : sid === 'scatter' ? 'scatter' : 'symbol';
+
+  // strict, or a special symbol in balanced, or no archetype → name-based
+  const useName = mode === 'strict'
+    || (special && mode !== 'aggressive')
+    || arch === 'other';
+
+  if (useName) return { kind: 'symbol', tag: `${prefix}:name:${norm(name)}:${ts}`, archetype: arch };
+  return { kind: 'symbol', tag: `${prefix}:arch:${arch}:${ts}`, archetype: arch };
 }
 
 const STYLE_VERSION = '1';
@@ -197,7 +219,7 @@ export default async (req: Request) => {
       return Response.json({ error: 'not_eligible' }, { status: 403 });
     }
     const spec = JSON.parse(f.spec_json ?? '{}');
-    const { ids, names } = slotLabels(spec);
+    const { ids, names, archs } = slotLabels(spec);
 
     let state: ArtState;
     try { state = JSON.parse(f.art_json || ''); } catch { state = { assets: {}, done: false }; }
@@ -217,9 +239,9 @@ export default async (req: Request) => {
       const verdict = bytes ? await critic(bytes, toJudge === 'bg') : { pass: false, reasons: ['blob_missing'] };
       if (verdict.pass) {
         a.status = 'ok';
-        const reg = assetTag(toJudge, names[toJudge] ?? '', String(spec.themeStyle ?? 'default'));
+        const reg = assetTag(toJudge, names[toJudge] ?? '', String(spec.themeStyle ?? 'default'), archs[toJudge]);
         await registryRegister(base, token, {
-          asset_key: a.key, kind: reg.kind, subject_tag: reg.tag,
+          asset_key: a.key, kind: reg.kind, subject_tag: reg.tag, archetype: reg.archetype,
           theme_style: String(spec.themeStyle ?? 'default'),
           style_version: STYLE_VERSION, status: 'ok', uses: 1, machine_id: id,
         });
@@ -246,7 +268,7 @@ export default async (req: Request) => {
     }
     const a = state.assets[next];
     const mood = String(spec.tagline ?? '').replace(/["']/g, '');
-    const { kind, tag } = assetTag(next, names[next] ?? '', String(spec.themeStyle ?? 'default'));
+    const { kind, tag } = assetTag(next, names[next] ?? '', String(spec.themeStyle ?? 'default'), archs[next]);
 
     // Reuse-first: any critic-passed asset with the same subject tag and
     // style version serves immediately — no generation cost, no wait.

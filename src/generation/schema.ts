@@ -13,7 +13,7 @@ Schema:
   "color": "#hexcolor matching theme mood",
   "themeStyle": "egyptian|nautical|vegas|space|wizard|default — pick the closest match for the prompt",
   "symbols": [
-    { "emoji": "single emoji", "name": "Symbol name", "multiplier": number, "tier": "premium|mid|low" }
+    { "emoji": "single emoji", "name": "Symbol name", "multiplier": number, "tier": "premium|mid|low", "archetype": "one archetype from the list" }
   ],
   "wildSymbol": { "emoji": "single emoji", "name": "Wild name" },
   "bonusSymbol": { "emoji": "single emoji", "name": "Scatter name" }
@@ -26,7 +26,37 @@ Rules:
 - 3-of-a-kind approx 1/10th of 5-of-a-kind; 4-of-a-kind approx 1/3rd
 - Color: warm and saturated
 - themeStyle: "egyptian" for ancient Egypt/desert/pyramid themes, "nautical" for sea/pirate/fishing themes, "vegas" for classic/fruits/Vegas themes, "space" for sci-fi/futuristic/cosmic themes, "wizard" for fantasy/mystical/dragon themes, "default" otherwise
+- "archetype": for EACH symbol pick the SINGLE best-fitting category from this list (use "other" only if none fit): amphibian, reptile, serpent, bird, feline, canine, sea-creature, insect, mythic-beast, humanoid-figure, deity-idol, vessel-potion, blade-weapon, ranged-weapon, tool-implement, book-scroll, key-lock, coin-treasure, gem-crystal, container-chest, ring-amulet, orb-sphere, plant-flower, fruit, fungus, tree, element-fire, element-water, element-air, celestial, weather, building, vehicle, vessel-ship, emblem-symbol, food-drink, mask-face, card-dice, bell-horn, skull-bone, other
 - ONLY return the JSON object`;
+
+
+// Archetype vocabulary for concept-based asset reuse (see
+// specs/concept-tagging.md). Chosen to cover the symbol space of the
+// themes the product generates — creatures, objects, nature, structures,
+// casino staples — with 'other' as the safe fallback. The generation
+// model assigns one per symbol; validateAndClamp coerces anything off-list.
+export const ARCHETYPES = [
+  // creatures
+  'amphibian', 'reptile', 'serpent', 'bird', 'feline', 'canine',
+  'sea-creature', 'insect', 'mythic-beast', 'humanoid-figure', 'deity-idol',
+  // objects
+  'vessel-potion', 'blade-weapon', 'ranged-weapon', 'tool-implement',
+  'book-scroll', 'key-lock', 'coin-treasure', 'gem-crystal', 'container-chest',
+  'ring-amulet', 'orb-sphere',
+  // nature
+  'plant-flower', 'fruit', 'fungus', 'tree', 'element-fire', 'element-water',
+  'element-air', 'celestial', 'weather',
+  // structures / vehicles / misc
+  'building', 'vehicle', 'vessel-ship', 'emblem-symbol', 'food-drink',
+  'mask-face', 'card-dice', 'bell-horn', 'skull-bone',
+  'other',
+] as const;
+export type Archetype = typeof ARCHETYPES[number];
+
+export function coerceArchetype(v: unknown): Archetype {
+  const s = String(v ?? '').toLowerCase().trim();
+  return (ARCHETYPES as readonly string[]).includes(s) ? (s as Archetype) : 'other';
+}
 
 const BANDS: Record<Tier, [number, number]> = {
   low: [5, 15],
@@ -64,6 +94,7 @@ export function validateAndClamp(raw: unknown): GeneratedSpec {
       name: String(s.name ?? 'Symbol').slice(0, 24),
       multiplier: mult,
       tier,
+      archetype: coerceArchetype((s as { archetype?: unknown }).archetype),
     };
   });
   symbols.sort((a, b) => a.multiplier - b.multiplier);

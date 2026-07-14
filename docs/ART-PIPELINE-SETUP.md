@@ -63,6 +63,7 @@ exactly `assets` (lowercase). Fields (rename the primary field first):
 | `status` | Single select: `ok`, `retired` |
 | `uses` | Number (integer) |
 | `machine_id` | Single line text |
+| `archetype` | Single line text |
 | `created_at` | Created time |
 
 No token changes needed (the token grants the whole base). Without this
@@ -74,3 +75,27 @@ Open the machine's row in `machines`, clear the `art_json` and
 `art_status` cells, then open the machine on the site — it re-paints
 under the current rules. To retire a bad registry asset so it stops
 being reused, set its `status` to `retired` in `assets`.
+
+
+---
+
+# Concept tagging — mark 2, step 3b
+
+Asset reuse now matches on symbol *archetype* (e.g. frog and toad both →
+`amphibian`), not exact name, controlled by env var `REUSE_MODE`:
+- `strict` — name-based (today's behaviour)
+- `balanced` — DEFAULT if unset; archetypes reuse common symbols, wild &
+  scatter stay name-scoped
+- `aggressive` — archetypes for everything
+
+To change: set `REUSE_MODE` in Netlify env vars + redeploy. No value
+needed to run — it defaults to `balanced`. See `specs/concept-tagging.md`.
+
+Add one field to the `assets` table for observability: `archetype`
+(single line text). Optional — reuse works without it, you just won't
+see the bucket per row.
+
+Note: existing name-tagged assets from before this change keep serving
+under their old tags; new machines write archetype-tagged rows. To force
+the whole catalogue onto the new scheme, bump `style_version` handling
+(advanced — leave for the VPS migration).

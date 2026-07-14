@@ -12,6 +12,7 @@ export interface SymbolDef {
   name: string;
   multiplier: number;
   tier: Tier;
+  archetype?: string; // concept-reuse bucket (specs/concept-tagging.md); engine ignores
 }
 
 export interface SpecialSymbol {
