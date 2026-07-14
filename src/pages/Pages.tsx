@@ -202,7 +202,7 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
         </div>
         <div className="forge-card" style={{ '--mc': slot.color } as React.CSSProperties}>
           <h2 className="chrome-text forge-title">{slot.name}</h2>
-          <div className="tagline">The Smith is forging your machine…</div>
+          <div className="tagline">Your machine is being forged…</div>
           <div className="forge-tray">
             {Array.from({ length: progress.total }, (_, i) => {
               const key = tiles[i];
@@ -212,7 +212,7 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
             })}
           </div>
           <div className="forge-bar"><div className="forge-fill" style={{ width: `${Math.round((progress.completed / Math.max(1, progress.total)) * 100)}%` }} /></div>
-          <div className="forge-count">{progress.completed} / {progress.total} symbols forged</div>
+          <div className="forge-count">{progress.completed} / {progress.total} pieces forged</div>
         </div>
       </div>
     );
@@ -220,6 +220,13 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
 
   return (
     <div className="machine-page">
+      {artMap.bg && (
+        <div
+          className="page-bg"
+          style={{ backgroundImage: `url(/api/art-get?key=${encodeURIComponent(artMap.bg)})` }}
+          aria-hidden="true"
+        />
+      )}
       <div className="machine-nav">
         <button className="chip" onClick={() => go('#/')}>← Lobby</button>
         <button className="chip" onClick={() => go('#/build')}>Build another</button>
@@ -230,7 +237,7 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
         style={{
           '--mc': slot.color,
           ...(artMap.bg ? {
-            backgroundImage: `linear-gradient(rgba(18,8,38,.84), rgba(18,8,38,.93)), url(/api/art-get?key=${encodeURIComponent(artMap.bg)})`,
+            backgroundImage: `linear-gradient(rgba(18,8,38,.55), rgba(18,8,38,.78)), url(/api/art-get?key=${encodeURIComponent(artMap.bg)})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
           } : {}),
@@ -262,7 +269,7 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
               : state.view ? `+${fmt(state.view.runningTotal)}` : state.lastWin > 0 ? `+${fmt(state.lastWin)}` : ''}
           </div>
         </div>
-        <Paytable slot={slot} artMap={artMap} />
+        <Paytable slot={slot} artMap={artMap} bet={bets[betIdx]} />
         {state.phase === 'celebrating' && state.outcome && state.tier && state.tier !== 'small' && (
           <WinOverlay rollup={state.rollup ?? state.outcome.totalWin} cascades={state.outcome.cascades} tier={state.tier} />
         )}

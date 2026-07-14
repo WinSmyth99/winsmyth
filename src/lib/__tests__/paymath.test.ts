@@ -72,3 +72,13 @@ describe('paytable display equals engine award', () => {
     expect(w.prize).toBe(displayPrizeGC(2500, 5, 1 / 10));
   });
 });
+
+describe('paytable tracks the stake', () => {
+  it('parity holds at 500 and 10,000 bets, not just 2,500', () => {
+    [500, 10000].forEach((bet) => {
+      const r = evaluateLines(slot, mkGrid(['ABCDE', 'HHHHH', 'ABCDE']), bet);
+      const w = r.lineWins.find((x) => x.symbol.emoji === 'H' && x.count === 5)!;
+      expect(w.prize).toBe(displayPrizeGC(bet, 300, 1));
+    });
+  });
+});

@@ -78,7 +78,7 @@ export function Reels({ slot, state, artMap }: { slot: SlotDef; state: ReturnTyp
                       return (
                         <div key={i} className="loop-cell">
                           {ak
-                            ? <img className="cell-art" src={`/api/art-get?key=${encodeURIComponent(ak)}`} alt="" loading="lazy" />
+                            ? <img className="loop-art" src={`/api/art-get?key=${encodeURIComponent(ak)}`} alt="" loading="lazy" />
                             : <span className="cell-emoji">{s.emoji}</span>}
                         </div>
                       );
@@ -94,7 +94,7 @@ export function Reels({ slot, state, artMap }: { slot: SlotDef; state: ReturnTyp
   );
 }
 
-export function Paytable({ slot, artMap }: { slot: SlotDef; artMap?: ArtMap }) {
+export function Paytable({ slot, artMap, bet }: { slot: SlotDef; artMap?: ArtMap; bet: number }) {
   const cols = useMemo(() => {
     if (slot.gameType === 'scatter') {
       const m0 = scatterMinHit(slot);
@@ -117,15 +117,16 @@ export function Paytable({ slot, artMap }: { slot: SlotDef; artMap?: ArtMap }) {
   }, [slot]);
 
   const note = slot.gameType === 'ways'
-    ? 'Wins pay left-to-right on adjacent reels in any row — all ways. Values shown are per way.'
+    ? `All ways: adjacent reels, any row. Values are per way at your ${fmt(bet)} bet (totals floor once, so multi-way wins can differ by a coin).`
     : slot.gameType === 'scatter'
-      ? `No paylines: ${scatterMinHit(slot)}+ matching symbols anywhere pay. Wilds count toward every symbol.`
+      ? `No paylines: ${scatterMinHit(slot)}+ matching anywhere pay. Wilds count toward every symbol. Values at your ${fmt(bet)} bet.`
       : slot.gameType === 'cluster'
-        ? 'No paylines: clusters of 5+ touching symbols pay. Wilds join any cluster.'
-        : 'Wins pay left-to-right across 9 paylines. Values shown at a 2,500 bet.';
+        ? `Clusters of 5+ touching symbols pay. Wilds join any cluster. Values at your ${fmt(bet)} bet.`
+        : `9 paylines, left to right. Values at your ${fmt(bet)} bet.`;
 
   return (
     <div className="paytable">
+      <div className="pt-title">Paytable <span className="pt-sub">wins at current stake</span></div>
       <table>
         <thead>
           <tr><th>Symbol</th>{cols.map((c) => <th key={c.label}>{c.label}</th>)}</tr>
@@ -133,7 +134,7 @@ export function Paytable({ slot, artMap }: { slot: SlotDef; artMap?: ArtMap }) {
         <tbody>
           {[...slot.symbols].reverse().map((s) => (
             <tr key={s.emoji}>
-              <td className="pt-sym">
+              <td className="pt-sym"><i className={`tier-dot tier-${s.tier}`} />
                 {(() => {
                   const i = slot.symbols.findIndex((x) => x.emoji === s.emoji);
                   const key = i >= 0 ? artMap?.[`s${i}`] : undefined;
@@ -145,7 +146,7 @@ export function Paytable({ slot, artMap }: { slot: SlotDef; artMap?: ArtMap }) {
                 <td key={c.label} className="pt-val">
                   {('premOnly' in c && c.premOnly && s.tier !== 'premium')
                     ? '—'
-                    : fmt(displayPrizeGC(2500, s.multiplier, c.mf, slot.gameType === 'ways' ? 9 : 1))}
+                    : fmt(displayPrizeGC(bet, s.multiplier, c.mf, slot.gameType === 'ways' ? 9 : 1))}
                 </td>
               ))}
             </tr>
