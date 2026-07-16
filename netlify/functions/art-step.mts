@@ -80,9 +80,14 @@ function assetTag(
   const special = sid === 'wild' || sid === 'scatter';
   const prefix = sid === 'wild' ? 'wild' : sid === 'scatter' ? 'scatter' : 'symbol';
 
-  // strict, or a special symbol in balanced, or no archetype → name-based
+  // Identity-bearing archetypes (a witch is not a clown): these swap only
+  // on exact name, like wild/scatter. Objects and creatures stay generic.
+  const CHARACTER = ['humanoid-figure', 'deity-idol', 'mythic-beast'];
+
+  // strict, or a special/character symbol in balanced, or no archetype → name-based
   const useName = mode === 'strict'
     || (special && mode !== 'aggressive')
+    || (CHARACTER.includes(arch) && mode !== 'aggressive')
     || arch === 'other';
 
   if (useName) return { kind: 'symbol', tag: `${prefix}:name:${norm(name)}:${ts}`, archetype: arch };
@@ -91,17 +96,47 @@ function assetTag(
 
 const STYLE_VERSION = '1';
 
-async function registryLookup(base: string, token: string, kind: string, tag: string): Promise<{ recId: string; key: string; uses: number } | null> {
+// Hue of a #rrggbb colour (0-360), or null for achromatic/invalid.
+function hueOf(hex: string): number | null {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  if (max === min) return null;
+  let h = 0;
+  if (max === r) h = ((g - b) / (max - min)) % 6;
+  else if (max === g) h = (b - r) / (max - min) + 2;
+  else h = (r - g) / (max - min) + 4;
+  return (h * 60 + 360) % 360;
+}
+
+function paletteCompatible(machineColor: string, assetPalette: string): boolean {
+  const a = hueOf(machineColor), b = hueOf(assetPalette);
+  if (a == null || b == null) return false; // legacy/unknown palettes never reuse
+  const d = Math.abs(a - b);
+  return Math.min(d, 360 - d) <= 70; // same colour family
+}
+
+async function registryLookup(
+  base: string, token: string, kind: string, tag: string,
+  machineColor: string, usedKeys: Set<string>,
+): Promise<{ recId: string; key: string; uses: number } | null> {
   try {
     const url = new URL(`https://api.airtable.com/v0/${base}/assets`);
     url.searchParams.set('filterByFormula', `AND({kind}='${kind}',{subject_tag}='${tag}',{status}='ok',{style_version}='${STYLE_VERSION}')`);
-    url.searchParams.set('maxRecords', '1');
+    url.searchParams.set('maxRecords', '10');
     const r = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
     if (!r.ok) return null;
     const d = await r.json();
-    const rec = d.records?.[0];
-    if (!rec?.fields?.asset_key) return null;
-    return { recId: rec.id, key: rec.fields.asset_key, uses: Number(rec.fields.uses ?? 0) };
+    for (const rec of d.records ?? []) {
+      const key = rec?.fields?.asset_key as string | undefined;
+      if (!key) continue;
+      if (usedKeys.has(key)) continue; // NEVER the same art twice in one machine
+      if (!paletteCompatible(machineColor, String(rec.fields.palette ?? ''))) continue;
+      return { recId: rec.id, key, uses: Number(rec.fields.uses ?? 0) };
+    }
+    return null;
   } catch { return null; }
 }
 
@@ -176,9 +211,9 @@ const CRITIC_MARQUE_SYS = `You review a neon SIGN image for a game title. FAIL (
 
 const CRITIC_BG_SYS = `You review backdrop art for a game screen. FAIL (pass=false) if ANY of these: contains ANY letters, words, numbers or typography anywhere; too bright or busy for UI to sit on top (must be a dark scene); off-style (must be a synthwave neon landscape, deep purples); disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
-const CRITIC_SYS = `You review slot machine symbol art. FAIL (pass=false) if ANY of these: contains ANY letters, words, numbers or typography anywhere in the image; depicts an entire slot machine, casino sign, poster or storefront rather than a single object emblem; multiple competing subjects or a full scene; unreadable as an icon at 100px; off-style (must be neon synthwave, dark purple ground); disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_SYS = `You review slot machine symbol art. FAIL (pass=false) if ANY of these: the image does NOT clearly depict the stated subject; contains ANY letters, words, numbers or typography anywhere in the image; depicts an entire slot machine, casino sign, poster or storefront rather than a single object emblem; multiple competing subjects or a full scene; unreadable as an icon at 100px; off-style (must be neon synthwave, dark purple ground); disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
-async function critic(pngBytes: ArrayBuffer, sid: string): Promise<{ pass: boolean; reasons: string[] }> {
+async function critic(pngBytes: ArrayBuffer, sid: string, subject = ''): Promise<{ pass: boolean; reasons: string[] }> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return { pass: true, reasons: ['critic_unavailable'] }; // don't block art on missing critic
   const b64 = Buffer.from(pngBytes).toString('base64');
@@ -193,7 +228,7 @@ async function critic(pngBytes: ArrayBuffer, sid: string): Promise<{ pass: boole
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: 'image/png', data: b64 } },
-          { type: 'text', text: 'Review this symbol.' },
+          { type: 'text', text: subject ? `Review this image. It is supposed to depict: ${subject}.` : 'Review this image.' },
         ],
       }],
     }),
@@ -256,7 +291,7 @@ export default async (req: Request) => {
     if (toJudge) {
       const a = state.assets[toJudge];
       const bytes = await store.get(a.key!, { type: 'arrayBuffer' });
-      const verdict = bytes ? await critic(bytes, toJudge) : { pass: false, reasons: ['blob_missing'] };
+      const verdict = bytes ? await critic(bytes, toJudge, names[toJudge] ?? '') : { pass: false, reasons: ['blob_missing'] };
       if (verdict.pass) {
         a.status = 'ok';
         const reg = toJudge === 'marque' ? null : assetTag(toJudge, names[toJudge] ?? '', String(spec.themeStyle ?? 'default'), archs[toJudge], id);
@@ -264,6 +299,7 @@ export default async (req: Request) => {
           await registryRegister(base, token, {
             asset_key: a.key, kind: reg.kind, subject_tag: reg.tag, archetype: reg.archetype,
             theme_style: String(spec.themeStyle ?? 'default'),
+            palette: String(spec.color ?? ''),
             style_version: STYLE_VERSION, status: 'ok', uses: 1, machine_id: id,
           });
       } else if (a.attempts < 2) {
@@ -295,7 +331,8 @@ export default async (req: Request) => {
     // style version serves immediately — no generation cost, no wait.
     // This is the recycling loop's v1 (production architecture §5).
     if (a.attempts === 0 && next !== 'marque') {
-      const hit = await registryLookup(base, token, kind, tag);
+      const usedKeys = new Set(Object.values(state.assets).map((x) => x.key).filter(Boolean) as string[]);
+      const hit = await registryLookup(base, token, kind, tag, String(spec.color ?? ''), usedKeys);
       if (hit) {
         a.key = hit.key;
         a.status = 'ok';
@@ -315,7 +352,7 @@ export default async (req: Request) => {
       ? `${BG_STYLE} Mood: ${mood}.`
       : next === 'marque'
         ? `${MARQUE_STYLE} The sign says: "${String(spec.name ?? '').slice(0, 30)}".`
-        : `${HOUSE_STYLE} The object: ${names[next]}. Mood: ${mood}.`;
+        : `${HOUSE_STYLE} The object: ${names[next]}. Mood: ${mood}. Accent colour ${String(spec.color ?? '#FF3DA5')}, ${norm(String(spec.themeStyle ?? 'default'))} atmosphere.`;
     const bytes = await generateImage(
       prompt,
       String(spec.color ?? '#FF3DA5'),

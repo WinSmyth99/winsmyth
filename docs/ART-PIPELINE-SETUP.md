@@ -130,3 +130,46 @@ To wipe player machines but KEEP your Originals: in `machines`, filter
 `house` is unchecked, select those rows, delete. Your ticked Originals
 survive. (Deleting rows leaves their art in the registry/Blobs, which is
 fine — it means rebuilds are faster.)
+
+
+---
+
+# P0 additions (publish-optional + play counts)
+
+Two small changes to the `machines` table:
+1. **`status` single select — add one option:** `unlisted` (alongside
+   live / pending / rejected). New builds that pass review are created as
+   `unlisted`; the creator publishes them to `live` from the machine page.
+2. **New field:** `plays` — Number (integer). Real open-counts shown on
+   catalogue cards.
+
+Existing rows are unaffected. Moderation console note: `unlisted` means
+approved-but-private (creator's choice); `pending` still means held for
+your review.
+
+
+---
+
+# Art-fit fixes (uniqueness, palette, relevance)
+
+One new field on the `assets` table:
+| Field name | Type |
+|---|---|
+| `palette` | Single line text |
+
+What changed in the pipeline:
+- **No duplicates within a machine** — an asset key can never be assigned
+  to two symbols of the same machine; a collision generates fresh instead.
+- **Palette gate** — reuse now requires colour-family compatibility (hue
+  distance ≤ 70°) between the machine and the asset's recorded palette.
+  Legacy assets without a palette are never reused (the library re-fills
+  with palette-tagged art; expect a short-term dip in reuse rate).
+- **Character archetypes** (humanoid-figure, deity-idol, mythic-beast)
+  are name-scoped in balanced mode — a witch never becomes a clown.
+- **Subject check** — the art critic now receives the symbol's name and
+  fails images that don't clearly depict it.
+
+Machines forged before this change keep their art. To fix an affected
+machine (duplicates / clashing colours / irrelevant icons): clear its
+`art_json` and `art_status` in `machines`, reopen it, and it re-forges
+under the new rules.

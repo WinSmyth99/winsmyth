@@ -110,3 +110,12 @@ the first half of the eventual design.
 1. Approve the vocabulary (§2) — add/remove buckets?
 2. Set the default `REUSE_MODE` — `balanced` proposed.
 3. Confirm wild/scatter stay name-scoped in `balanced`.
+
+
+## Addendum (post-launch fixes)
+Observed in production: within-machine duplicate assets (two same-archetype
+symbols resolving to one asset), palette clashes on reuse, over-broad
+character swapping, and subject-irrelevant art passing the critic.
+Fixes: within-machine key uniqueness; `palette` field + hue-compatibility
+gate (≤70°) on all reuse; humanoid-figure/deity-idol/mythic-beast are
+name-scoped in balanced; critic verifies the stated subject.
