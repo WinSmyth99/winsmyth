@@ -9,7 +9,7 @@
 import { SYS, validateAndClamp } from '../../src/generation/schema';
 
 const WINDOW_MS = 60 * 60 * 1000;
-const MAX_PER_WINDOW = 10;
+const MAX_PER_WINDOW = Number(process.env.GEN_RATE_LIMIT ?? 10);
 const hits = new Map<string, number[]>();
 
 function limited(ip: string): boolean {

@@ -47,10 +47,12 @@ export default function App() {
     ];
   }, [session, community]);
 
-  const onBuilt = (slot: SlotDef, usedFallback: boolean, held: boolean, unlisted: boolean) => {
+  const [failReasons, setFailReasons] = useState<Map<string, string>>(new Map());
+  const onBuilt = (slot: SlotDef, usedFallback: boolean, held: boolean, unlisted: boolean, failReason?: string) => {
     const id = `session-${Date.now()}`;
     setSession((s) => [{ id, slot, source: 'session' }, ...s]);
     if (usedFallback) setFallbackIds((f) => new Set(f).add(slot.name));
+    if (failReason) setFailReasons((m) => new Map(m).set(slot.name, failReason));
     if (held) setHeldIds((h) => new Set(h).add(slot.name));
     if (unlisted && slot.artId) setUnlistedIds((u) => new Set(u).add(slot.artId!));
     if (!usedFallback && !held && !unlisted) void fetchCommunity().then(setCommunity);
@@ -74,9 +76,11 @@ export default function App() {
           slot={slot}
           note={heldIds.has(slot.name)
             ? 'Your machine is playable here and held from the public catalogue pending review.'
-            : fallbackIds.has(slot.name)
-              ? 'Showing a themed preset — live generation needs the API key configured on the server.'
-              : null}
+            : failReasons.get(slot.name) === 'rate_limited'
+              ? 'The forge is cooling down: builds are limited per hour. This is a themed preset; try your build again shortly.'
+              : fallbackIds.has(slot.name)
+                ? 'Showing a themed preset. Live generation hit a server problem; try again in a minute.'
+                : null}
           canPublish={Boolean(slot.artId && unlistedIds.has(slot.artId))}
           onPublished={() => {
             if (slot.artId) setUnlistedIds((u) => { const n = new Set(u); n.delete(slot.artId!); return n; });

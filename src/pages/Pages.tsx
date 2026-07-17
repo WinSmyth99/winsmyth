@@ -97,7 +97,7 @@ export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: str
   );
 }
 
-export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: boolean, held: boolean, unlisted: boolean) => void; go: (hash: string) => void }) {
+export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: boolean, held: boolean, unlisted: boolean, failReason?: string) => void; go: (hash: string) => void }) {
   const [prompt, setPrompt] = useState('');
   const [reels, setReels] = useState(5);
   const [artStyle, setArtStyle] = useState('synthwave');
@@ -138,10 +138,10 @@ export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: bool
     if (building || !prompt.trim()) return;
     setBuilding(true);
     setRejectedMsg(false);
-    const { slot, usedFallback, held, rejected, unlisted } = await buildMachine({ prompt, reels, gameType, artStyle });
+    const { slot, usedFallback, held, rejected, unlisted, failReason } = await buildMachine({ prompt, reels, gameType, artStyle });
     setBuilding(false);
     if (rejected) { setRejectedMsg(true); return; }
-    onBuilt(slot, usedFallback, held, unlisted);
+    onBuilt(slot, usedFallback, held, unlisted, failReason);
     if (slot.artId) setForgeIntent();
     go(`#/m/${encodeSlot(slot)}`);
   };

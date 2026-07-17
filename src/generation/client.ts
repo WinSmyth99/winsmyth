@@ -17,6 +17,7 @@ export interface BuildRequest {
 export interface BuildOutcome {
   slot: SlotDef;
   usedFallback: boolean;
+  failReason?: 'rate_limited' | 'server_error';
   held: boolean;      // passed generation but held from the public catalogue
   rejected: boolean;  // blocked by triage
   unlisted: boolean;  // approved — creator decides whether to publish
@@ -36,6 +37,16 @@ export async function buildMachine(req: BuildRequest): Promise<BuildOutcome> {
     if (res.status === 422) {
       // triage block: no machine, and no silent fallback either
       return { slot: null as unknown as SlotDef, usedFallback: false, held: false, unlisted: false, rejected: true };
+    }
+    if (res.status === 429) {
+      const p = fallbackFor(req.prompt);
+      return {
+        slot: toSlotDef(
+          { name: p.name, tagline: p.tagline, color: p.color, themeStyle: p.themeStyle, symbols: p.symbols, wildSymbol: p.wildSymbol, bonusSymbol: p.bonusSymbol },
+          req.reels, req.gameType, vol,
+        ),
+        usedFallback: true, failReason: 'rate_limited', held: false, unlisted: false, rejected: false,
+      };
     }
     if (!res.ok) throw new Error(String(res.status));
     const d = (await res.json()) as { spec: GeneratedSpec; status?: string; id?: string };
