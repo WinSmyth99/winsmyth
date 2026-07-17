@@ -18,11 +18,22 @@ import { getStore } from '@netlify/blobs';
 interface AssetState { key?: string; status: 'pending' | 'stored' | 'ok' | 'fallback'; attempts: number }
 interface ArtState { assets: Record<string, AssetState>; done: boolean }
 
-const HOUSE_STYLE =
-  'One single object as a bold emblem icon, perfectly centered, filling most of the frame, on a plain ' +
-  'deep dark purple backdrop. Retro-future neon aesthetic: hot pink and violet rim lighting, clean thick ' +
-  'silhouette, high contrast, crisp edges, readable when small. Purely pictorial artwork with absolutely ' +
-  'no text, no letters, no numbers, no typography, no logos, no borders, no frames.';
+// Player-selectable art styles. Each block is the consistent language the
+// pipeline uses with the image model; the id is also written to the registry
+// so reuse can NEVER cross styles.
+const STYLE_BLOCKS: Record<string, string> = {
+  synthwave: 'Retro-futurist synthwave emblem, electric neon glow on a dusk gradient, clean vector-adjacent rendering.',
+  toon: 'Glossy 3D cartoon render, bold silhouettes, thick clean outlines, bouncy exaggerated shapes, saturated cheerful palette.',
+  epic: 'Semi-realistic fantasy illustration, painterly brushwork, dramatic rim lighting, rich atmospheric depth.',
+  vegas: 'Nineteen-fifties Las Vegas sign age, chrome bevels, incandescent bulb accents, halftone shading, warm americana palette.',
+  pixel: 'Chunky retro pixel art, crisp 32x32-feel blocks, limited vibrant palette, subtle dithering, arcade nostalgia.',
+  candy: 'Crystal candy gloss, glassy jelly surfaces, sugary specular highlights, jewel-bright colours, soft studio light.',
+  anime: 'Anime illustration linework, cel shading, dynamic composition, cyber neon glow accents.',
+  luxe: 'Art deco luxury, polished black and gold, engraved metallic detail, premium minimal composition.',
+};
+const styleBlock = (spec: { artStyle?: string }) => STYLE_BLOCKS[spec.artStyle ?? 'synthwave'] ?? STYLE_BLOCKS.synthwave;
+
+// HOUSE_STYLE folded into STYLE_BLOCKS.synthwave (the default style).
 
 const MARQUE_STYLE =
   'A glowing neon sign on a dark wall, retro synthwave casino style: hot pink and violet neon tubes, ' +
@@ -120,11 +131,11 @@ function paletteCompatible(machineColor: string, assetPalette: string): boolean 
 
 async function registryLookup(
   base: string, token: string, kind: string, tag: string,
-  machineColor: string, usedKeys: Set<string>,
+  machineColor: string, usedKeys: Set<string>, artStyle: string,
 ): Promise<{ recId: string; key: string; uses: number } | null> {
   try {
     const url = new URL(`https://api.airtable.com/v0/${base}/assets`);
-    url.searchParams.set('filterByFormula', `AND({kind}='${kind}',{subject_tag}='${tag}',{status}='ok',{style_version}='${STYLE_VERSION}')`);
+    url.searchParams.set('filterByFormula', `AND({kind}='${kind}',{subject_tag}='${tag}',{status}='ok',{style_version}='${STYLE_VERSION}',{art_style}='${artStyle}')`);
     url.searchParams.set('maxRecords', '10');
     const r = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
     if (!r.ok) return null;
@@ -300,6 +311,7 @@ export default async (req: Request) => {
             asset_key: a.key, kind: reg.kind, subject_tag: reg.tag, archetype: reg.archetype,
             theme_style: String(spec.themeStyle ?? 'default'),
             palette: String(spec.color ?? ''),
+            art_style: String((spec as { artStyle?: string }).artStyle ?? 'synthwave'),
             style_version: STYLE_VERSION, status: 'ok', uses: 1, machine_id: id,
           });
       } else if (a.attempts < 2) {
@@ -332,7 +344,7 @@ export default async (req: Request) => {
     // This is the recycling loop's v1 (production architecture §5).
     if (a.attempts === 0 && next !== 'marque') {
       const usedKeys = new Set(Object.values(state.assets).map((x) => x.key).filter(Boolean) as string[]);
-      const hit = await registryLookup(base, token, kind, tag, String(spec.color ?? ''), usedKeys);
+      const hit = await registryLookup(base, token, kind, tag, String(spec.color ?? ''), usedKeys, String((spec as { artStyle?: string }).artStyle ?? 'synthwave'));
       if (hit) {
         a.key = hit.key;
         a.status = 'ok';
@@ -348,11 +360,12 @@ export default async (req: Request) => {
     }
 
     a.attempts += 1;
+    const sBlock = styleBlock(spec as { artStyle?: string });
     const prompt = next === 'bg'
-      ? `${BG_STYLE} Mood: ${mood}.`
+      ? `${BG_STYLE} Art treatment: ${sBlock} Mood: ${mood}.`
       : next === 'marque'
-        ? `${MARQUE_STYLE} The sign says: "${String(spec.name ?? '').slice(0, 30)}".`
-        : `${HOUSE_STYLE} The object: ${names[next]}. Mood: ${mood}. Accent colour ${String(spec.color ?? '#FF3DA5')}, ${norm(String(spec.themeStyle ?? 'default'))} atmosphere.`;
+        ? `${MARQUE_STYLE} Art treatment: ${sBlock} The sign says: "${String(spec.name ?? '').slice(0, 30)}".`
+        : `${sBlock} The object: ${names[next]}. Mood: ${mood}. Accent colour ${String(spec.color ?? '#FF3DA5')}, ${norm(String(spec.themeStyle ?? 'default'))} atmosphere.`;
     const bytes = await generateImage(
       prompt,
       String(spec.color ?? '#FF3DA5'),

@@ -59,18 +59,23 @@ export default async (req: Request) => {
   const ip = req.headers.get('x-nf-client-connection-ip') ?? 'unknown';
   if (limited(ip)) return Response.json({ error: 'rate_limited' }, { status: 429 });
 
-  let prompt = ''; let reels = 5; let gameType = 'paylines';
+  let prompt = ''; let reels = 5; let gameType = 'paylines'; let artStyle = 'synthwave';
   try {
     const body = await req.json();
     prompt = String(body.prompt ?? '').slice(0, 300);
     reels = body.reels === 3 ? 3 : 5;
     gameType = ['paylines', 'ways', 'scatter', 'cluster'].includes(body.gameType) ? body.gameType : 'paylines';
+    const STYLE_IDS = ['synthwave', 'toon', 'epic', 'vegas', 'pixel', 'candy', 'anime', 'luxe'];
+    artStyle = STYLE_IDS.includes(String(body.artStyle)) ? String(body.artStyle) : 'synthwave';
   } catch { return Response.json({ error: 'bad_request' }, { status: 400 }); }
   if (prompt.trim().length < 3) return Response.json({ error: 'bad_request' }, { status: 400 });
 
   try {
     const genText = await anthropic(key, SYS, prompt, 'claude-sonnet-4-6');
     const spec = validateAndClamp(JSON.parse(genText.replace(/```json|```/g, '').trim()));
+    // Player-selected art style rides on the spec so the art pipeline and
+    // registry can honour it end to end.
+    (spec as { artStyle?: string }).artStyle = artStyle;
 
     // ── Triage gate ──
     let verdict = 'flag'; let reasons: string[] = ['triage_unavailable'];
@@ -96,7 +101,9 @@ export default async (req: Request) => {
       return Response.json({ error: 'content_rejected' }, { status: 422 });
     }
 
-    const status = verdict === 'pass' ? 'live' : 'pending';
+    // pass → unlisted: the machine is approved but the CREATOR chooses
+    // whether it joins the public catalogue (publish-optional flow).
+    const status = verdict === 'pass' ? 'unlisted' : 'pending';
     const id = await persist(spec, { name: spec.name, status, game_type: gameType, reels, prompt, triage_reasons: reasons.join('; ') });
 
     return Response.json({ spec, status, persisted: id != null, id });

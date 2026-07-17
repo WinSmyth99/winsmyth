@@ -5,6 +5,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { GameType, SlotDef, TYPE_PROFILES } from '../engine';
 import { buildMachine } from '../generation/client';
 import { CatalogEntry } from '../lib/catalog';
+import { ART_STYLES } from '../lib/artStyles';
 import { encodeSlot } from '../lib/share';
 import { consumeForgeIntent, setForgeIntent } from '../lib/forge';
 import { useGame } from '../hooks/useGame';
@@ -26,16 +27,25 @@ export function MachineCard({ entry, onPlay }: { entry: CatalogEntry; onPlay: ()
         {entry.source === 'session' && <span className="type-tag mine">Your build</span>}
         {entry.source === 'community' && <span className="type-tag community">Community</span>}
         {entry.source === 'house' && <span className="type-tag house">Original</span>}
+        {typeof entry.plays === 'number' && entry.plays > 0 && (
+          <span className="play-count">▶ {entry.plays.toLocaleString()}</span>
+        )}
       </div>
     </button>
   );
 }
 
 export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: string) => void }) {
-  const session = entries.filter((e) => e.source === 'session');
-  const house = entries.filter((e) => e.source === 'house');
-  const community = entries.filter((e) => e.source === 'community');
-  const presets = entries.filter((e) => e.source === 'preset');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [themeFilter, setThemeFilter] = useState<string>('all');
+  const themes = Array.from(new Set(entries.map((e) => e.slot.themeStyle))).sort();
+  const match = (e: CatalogEntry) =>
+    (typeFilter === 'all' || e.slot.gameType === typeFilter)
+    && (themeFilter === 'all' || e.slot.themeStyle === themeFilter);
+  const session = entries.filter((e) => e.source === 'session' && match(e));
+  const house = entries.filter((e) => e.source === 'house' && match(e));
+  const community = entries.filter((e) => e.source === 'community' && match(e));
+  const presets = entries.filter((e) => e.source === 'preset' && match(e));
   return (
     <div className="lobby">
       <section className="hero">
@@ -43,6 +53,16 @@ export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: str
         <p>Describe any theme and watch your bespoke machine come to life in seconds. No purchase ever required — just your imagination.</p>
         <button className="btn-build hero-cta" onClick={() => go('#/build')}>BUILD YOUR OWN</button>
       </section>
+      <div className="filter-bar">
+        <span className="filter-label">Mechanic</span>
+        {['all', 'paylines', 'ways', 'scatter', 'cluster'].map((t) => (
+          <button key={t} className={`chip filt${typeFilter === t ? ' on' : ''}`} onClick={() => setTypeFilter(t)}>{t === 'all' ? 'All' : t}</button>
+        ))}
+        {themes.length > 1 && <span className="filter-label sep">Theme</span>}
+        {themes.length > 1 && ['all', ...themes].map((t) => (
+          <button key={t} className={`chip filt${themeFilter === t ? ' on' : ''}`} onClick={() => setThemeFilter(t)}>{t === 'all' ? 'All' : t}</button>
+        ))}
+      </div>
       {session.length > 0 && (
         <section>
           <h3 className="row-title">Your machines <span className="row-note">this session</span></h3>
@@ -77,21 +97,51 @@ export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: str
   );
 }
 
-export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: boolean, held: boolean) => void; go: (hash: string) => void }) {
+export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: boolean, held: boolean, unlisted: boolean) => void; go: (hash: string) => void }) {
   const [prompt, setPrompt] = useState('');
   const [reels, setReels] = useState(5);
+  const [artStyle, setArtStyle] = useState('synthwave');
   const [gameType, setGameType] = useState<GameType>('paylines');
   const [building, setBuilding] = useState(false);
   const [rejectedMsg, setRejectedMsg] = useState(false);
+  const [listening, setListening] = useState(false);
+  const recRef = useRef<{ stop: () => void } | null>(null);
+
+  // Voice prompts: browser speech-to-text into the theme box. Feature-
+  // detected; the mic button simply doesn't render where unsupported.
+  const SR = (window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown });
+  const SpeechRec = (SR.SpeechRecognition ?? SR.webkitSpeechRecognition) as (new () => {
+    lang: string; interimResults: boolean; maxAlternatives: number;
+    onresult: (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void;
+    onend: () => void; onerror: () => void; start: () => void; stop: () => void;
+  }) | undefined;
+
+  const toggleVoice = () => {
+    if (listening) { recRef.current?.stop(); return; }
+    if (!SpeechRec) return;
+    const rec = new SpeechRec();
+    rec.lang = 'en-GB';
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = (e) => {
+      const t = e.results[0]?.[0]?.transcript ?? '';
+      if (t) setPrompt((p) => (p ? `${p} ${t}` : t));
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    recRef.current = rec;
+    setListening(true);
+    rec.start();
+  };
 
   const build = async () => {
     if (building || !prompt.trim()) return;
     setBuilding(true);
     setRejectedMsg(false);
-    const { slot, usedFallback, held, rejected } = await buildMachine({ prompt, reels, gameType });
+    const { slot, usedFallback, held, rejected, unlisted } = await buildMachine({ prompt, reels, gameType, artStyle });
     setBuilding(false);
     if (rejected) { setRejectedMsg(true); return; }
-    onBuilt(slot, usedFallback, held);
+    onBuilt(slot, usedFallback, held, unlisted);
     if (slot.artId) setForgeIntent();
     go(`#/m/${encodeSlot(slot)}`);
   };
@@ -101,13 +151,29 @@ export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: bool
       <div className="panel build-center">
         <h2 className="panel-title">Design Your Machine</h2>
         <label className="pl" htmlFor="prompt">Describe any theme</label>
-        <textarea
-          id="prompt" value={prompt} rows={4}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="e.g. A Viking raid on a fjord monastery — longships, runes, ravens."
-        />
+        <div className="prompt-wrap">
+          <textarea
+            id="prompt" value={prompt} rows={4}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="e.g. A Viking raid on a fjord monastery — longships, runes, ravens."
+          />
+          {SpeechRec && (
+            <button
+              className={`mic-btn${listening ? ' live' : ''}`}
+              onClick={toggleVoice}
+              title={listening ? 'Stop listening' : 'Speak your theme'}
+              type="button"
+            >{listening ? '◉' : '🎤'}</button>
+          )}
+        </div>
         <div className="chips">
           {CHIPS.map((c) => <button key={c} className="chip" onClick={() => setPrompt(c)}>{c}</button>)}
+        </div>
+        <div className="cfg-row style-row">
+          <label className="cfg-label" htmlFor="artstyle">Art style</label>
+          <select id="artstyle" value={artStyle} onChange={(e) => setArtStyle(e.target.value)}>
+            {ART_STYLES.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
+          </select>
         </div>
         <div className="cfg-row">
           <div>
@@ -137,9 +203,32 @@ export function Build({ onBuilt, go }: { onBuilt: (slot: SlotDef, fallback: bool
   );
 }
 
-export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null; go: (hash: string) => void }) {
+export function Machine({ slot, note, canPublish, onPublished, go }: { slot: SlotDef; note: string | null; canPublish?: boolean; onPublished?: () => void; go: (hash: string) => void }) {
   const { state, bets, betIdx, setBetIdx, spin, setTurbo, setAuto } = useGame(slot);
   const [copied, setCopied] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState(false);
+
+  // Real play counts: fire-and-forget ping when a machine opens.
+  useEffect(() => {
+    if (slot.artId) void fetch('/api/play-count', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: slot.artId }),
+    }).catch(() => undefined);
+  }, [slot]);
+
+  const publish = async () => {
+    if (!slot.artId || publishing) return;
+    setPublishing(true);
+    try {
+      const r = await fetch('/api/publish', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: slot.artId }),
+      });
+      if (r.ok) { setPublished(true); onPublished?.(); }
+    } catch { /* stays unpublished */ }
+    setPublishing(false);
+  };
   const [artMap, setArtMap] = useState<ArtMap>({});
   const [artBusy, setArtBusy] = useState(false);
   const [forging, setForging] = useState(() => consumeForgeIntent() && Boolean(slot.artId));
@@ -261,6 +350,15 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
           <div className="type-tag">{TYPE_PROFILES[slot.gameType].label}</div>
         </div>
         {note && <p className="fallback-note center">{note}</p>}
+        {canPublish && !published && (
+          <p className="publish-row">
+            Your machine is approved and private.{' '}
+            <button className="chip publish-btn" onClick={publish} disabled={publishing}>
+              {publishing ? 'Publishing…' : 'Publish to community'}
+            </button>
+          </p>
+        )}
+        {published && <p className="publish-row done">✦ Published — it's live in the community catalogue.</p>}
         {artBusy && <p className="art-note">✦ Painting your machine's artwork…</p>}
         {state.freeSpins > 0 && (
           <div className="fs-banner">FREE SPINS ×{state.freeSpins}{state.expandEmoji ? ` — ${state.expandEmoji} pays double` : ''}</div>
@@ -301,6 +399,28 @@ export function Machine({ slot, note, go }: { slot: SlotDef; note: string | null
         {state.phase === 'celebrating' && state.outcome && state.tier && state.tier !== 'small' && (
           <WinOverlay rollup={state.rollup ?? state.outcome.totalWin} cascades={state.outcome.cascades} tier={state.tier} />
         )}
+      </div>
+    </div>
+  );
+}
+
+
+export function Fairness({ go }: { go: (hash: string) => void }) {
+  return (
+    <div className="fair-page">
+      <button className="chip" onClick={() => go('#/')}>← Lobby</button>
+      <h2 className="chrome-text">How Winsmyth plays fair</h2>
+      <div className="fair-body">
+        <h3>The maths is the maths</h3>
+        <p>Every machine's paytable computes the exact same expression as the award engine, at every stake — verified by automated tests on every deployment. What you read is what you're paid.</p>
+        <h3>Capped wins</h3>
+        <p>The maximum award on any single spin, including cascades and free spins, is 5,000× your bet.</p>
+        <h3>Free to play</h3>
+        <p>Winsmyth is a social casino. Gold Coins have no cash value; play is for entertainment. There is nothing to buy and nothing to withdraw.</p>
+        <h3>Reviewed before published</h3>
+        <p>Every player-built machine passes an automatic content review before it can appear in the public catalogue, and anything uncertain is held for human review. The public floor is family-friendly by policy.</p>
+        <h3>An honest prototype</h3>
+        <p>Winsmyth is a working prototype. Spins are resolved by in-browser random number generation for demonstration purposes; the production platform moves outcome generation server-side under a certified maths model.</p>
       </div>
     </div>
   );

@@ -173,3 +173,20 @@ Machines forged before this change keep their art. To fix an affected
 machine (duplicates / clashing colours / irrelevant icons): clear its
 `art_json` and `art_status` in `machines`, reopen it, and it re-forges
 under the new rules.
+
+
+---
+
+# Art styles (player-selectable)
+
+One new field on the `assets` table:
+| Field name | Type |
+|---|---|
+| `art_style` | Single line text |
+
+Players pick from eight styles in the build screen (Neon Synthwave is the
+default): synthwave, toon, epic, vegas, pixel, candy, anime, luxe. The
+style rides on the machine spec, prefixes every art prompt with a fixed
+style block, and is written to the registry so reuse can never cross
+styles. Legacy assets without an art_style value are treated as
+non-matching and will not be reused.

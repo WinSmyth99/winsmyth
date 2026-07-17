@@ -525,3 +525,55 @@ main { padding-top: 8px; }
 
 /* House / Originals tag */
 .type-tag.house { border-color: var(--gc-primary); color: var(--gc-primary); box-shadow: 0 0 10px var(--gc-glow); }
+
+/* ── P0: voice, filters, publish, counts, fairness, motion pass ── */
+.prompt-wrap { position: relative; }
+.mic-btn {
+  position: absolute; right: 10px; bottom: 10px;
+  background: var(--bg2); border: 1px solid var(--border2); border-radius: 50%;
+  width: 40px; height: 40px; font-size: 1.1rem; cursor: pointer; color: var(--text);
+}
+.mic-btn.live { border-color: var(--pink); color: var(--pink); animation: mic-pulse 1s ease-in-out infinite; }
+@keyframes mic-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,61,165,.5); } 50% { box-shadow: 0 0 0 9px rgba(255,61,165,0); } }
+
+.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 18px; }
+.filter-label { font-family: var(--font-mono); font-size: .68rem; letter-spacing: .14em; color: var(--muted2); text-transform: uppercase; }
+.filter-label.sep { margin-left: 10px; }
+.chip.filt { font-size: .74rem; opacity: .8; text-transform: capitalize; }
+.chip.filt.on { opacity: 1; border-color: var(--highlight); color: var(--highlight); }
+
+.publish-row { text-align: center; font-size: .92rem; color: var(--muted); margin: 4px 0; }
+.publish-row .publish-btn { border-color: var(--win); color: var(--win); margin-left: 6px; }
+.publish-row.done { color: var(--win); font-family: var(--font-script); font-size: 1rem; }
+
+.play-count { font-family: var(--font-mono); font-size: .68rem; color: var(--muted2); margin-left: auto; }
+
+.fair-link { color: var(--highlight); text-decoration: none; }
+.fair-page { max-width: 760px; margin: 0 auto; padding: 8px 4px 40px; }
+.fair-page h2 { font-size: 2rem; margin: 18px 0 6px; }
+.fair-body h3 { color: var(--pink); font-size: 1.05rem; margin: 22px 0 6px; font-family: var(--font-display); font-weight: 400; letter-spacing: .04em; }
+.fair-body p { color: var(--muted); line-height: 1.55; font-size: .95rem; margin: 0; }
+
+/* P0.4 motion pass: winning cells get an animated ring + lift; mega+ flash */
+.cell.hl {
+  animation: win-ring 1s ease-in-out infinite;
+  transform: translateZ(0) scale(1.045);
+  transition: transform .18s ease;
+}
+@keyframes win-ring {
+  0%, 100% { box-shadow: 0 0 0 2px var(--win), 0 0 16px rgba(61,232,255,.5); }
+  50% { box-shadow: 0 0 0 3px var(--win), 0 0 30px rgba(61,232,255,.85); }
+}
+.win-overlay { animation: overlay-in .28s ease; }
+@keyframes overlay-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+.machine:has(.win-overlay) { animation: big-flash .5s ease 1; }
+@keyframes big-flash {
+  0% { filter: brightness(1); } 22% { filter: brightness(1.35) saturate(1.2); } 100% { filter: brightness(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cell.hl, .win-overlay, .machine:has(.win-overlay), .mic-btn.live { animation: none; }
+}
+
+/* Art style picker */
+.cfg-row.style-row { margin-bottom: 10px; }
+.cfg-row.style-row select { width: 100%; }

@@ -11,6 +11,7 @@ export interface BuildRequest {
   prompt: string;
   reels: number;
   gameType: GameType;
+  artStyle?: string;
 }
 
 export interface BuildOutcome {
@@ -18,6 +19,7 @@ export interface BuildOutcome {
   usedFallback: boolean;
   held: boolean;      // passed generation but held from the public catalogue
   rejected: boolean;  // blocked by triage
+  unlisted: boolean;  // approved — creator decides whether to publish
 }
 
 // artId is attached to the slot when the machine persisted, so machine
@@ -29,11 +31,11 @@ export async function buildMachine(req: BuildRequest): Promise<BuildOutcome> {
     const res = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prompt: req.prompt, reels: req.reels, gameType: req.gameType }),
+      body: JSON.stringify({ prompt: req.prompt, reels: req.reels, gameType: req.gameType, artStyle: req.artStyle ?? 'synthwave' }),
     });
     if (res.status === 422) {
       // triage block: no machine, and no silent fallback either
-      return { slot: null as unknown as SlotDef, usedFallback: false, held: false, rejected: true };
+      return { slot: null as unknown as SlotDef, usedFallback: false, held: false, unlisted: false, rejected: true };
     }
     if (!res.ok) throw new Error(String(res.status));
     const d = (await res.json()) as { spec: GeneratedSpec; status?: string; id?: string };
@@ -43,6 +45,7 @@ export async function buildMachine(req: BuildRequest): Promise<BuildOutcome> {
       slot,
       usedFallback: false,
       held: d.status === 'pending',
+      unlisted: d.status === 'unlisted',
       rejected: false,
     };
   } catch {
@@ -54,6 +57,7 @@ export async function buildMachine(req: BuildRequest): Promise<BuildOutcome> {
       ),
       usedFallback: true,
       held: false,
+      unlisted: false,
       rejected: false,
     };
   }
