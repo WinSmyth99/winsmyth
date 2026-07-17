@@ -82,3 +82,22 @@ describe('paytable tracks the stake', () => {
     });
   });
 });
+
+import { resolveCascades } from '../../engine/cascade';
+
+describe('max-win cap', () => {
+  it('an outcome that would exceed 5,000x bet is clamped to exactly the cap', () => {
+    // Forcing grid: a full screen of a monster-multiplier symbol makes the
+    // uncapped total vastly exceed the ceiling; the outcome must clamp.
+    const monster: SlotDef = {
+      ...slot,
+      symbols: [{ emoji: 'M', name: 'monster', multiplier: 200000, tier: 'premium' }, ...syms.slice(1)],
+    };
+    const mFind = (): GridSym => ({ ...monster.symbols[0] });
+    const g: Grid = Array.from({ length: 5 }, () =>
+      Array.from({ length: 3 }, () => ({ sym: mFind() })) as Cell[]);
+    const seeded = (() => { let x = 7; return () => { x = (x * 48271) % 2147483647; return x / 2147483647; }; })();
+    const out = resolveCascades(monster, g, 500, 'gc', undefined, seeded);
+    expect(out.totalWin).toBe(500 * 5000);
+  });
+});

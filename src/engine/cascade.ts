@@ -115,6 +115,11 @@ export function resolveCascades(
     if (step > 60) break; // hard safety net; stress-tested max observed is 6
     result = evaluateGrid(slot, grid, bet, mode, fs);
   }
+  // Max-win cap: total award per spin is capped at 5,000× bet (industry-
+  // standard ceiling; matches the certified-template model). Applied once
+  // at outcome level so cascade/free-spin chains can never exceed it.
+  const cap = bet * 5000;
+  if (totalWin > cap) totalWin = cap;
   return { steps, totalWin, bestMult, totalWins, cascades: step, finalGrid: grid };
 }
 

@@ -10,6 +10,7 @@ export interface CatalogEntry {
   id: string;
   slot: SlotDef;
   source: 'preset' | 'session' | 'community' | 'house';
+  plays?: number;
 }
 
 export function presetEntries(): CatalogEntry[] {
@@ -35,14 +36,14 @@ export async function fetchCommunity(): Promise<CatalogEntry[]> {
   try {
     const res = await fetch('/api/catalog');
     if (!res.ok) return [];
-    const d = await res.json() as { machines: { id: string; spec: unknown; gameType: string; reels: number; house?: boolean }[] };
+    const d = await res.json() as { machines: { id: string; spec: unknown; gameType: string; reels: number; house?: boolean; plays?: number }[] };
     return (d.machines ?? []).flatMap((m) => {
       try {
         const gt = (['paylines', 'ways', 'scatter', 'cluster'] as GameType[]).includes(m.gameType as GameType)
           ? m.gameType as GameType : 'paylines';
         const slot = toSlotDef(validateAndClamp(m.spec), m.reels === 3 ? 3 : 5, gt, TYPE_PROFILES[gt].vol);
         if (/^rec[A-Za-z0-9]{14,17}$/.test(m.id)) slot.artId = m.id;
-        return [{ id: m.id, source: (m.house ? 'house' : 'community') as 'house' | 'community', slot }];
+        return [{ id: m.id, source: (m.house ? 'house' : 'community') as 'house' | 'community', slot, plays: m.plays ?? 0 }];
       } catch { return []; }
     });
   } catch { return []; }

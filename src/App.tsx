@@ -8,7 +8,7 @@ import { sound } from './sound/engine';
 import { wallet } from './lib/wallet';
 import { CatalogEntry, fetchCommunity, presetEntries } from './lib/catalog';
 import { decodeSlot } from './lib/share';
-import { Build, Lobby, Machine } from './pages/Pages';
+import { Build, Fairness, Lobby, Machine } from './pages/Pages';
 import { fmt } from './components/Game';
 
 function useHash(): string {
@@ -30,6 +30,7 @@ export default function App() {
   const [community, setCommunity] = useState<CatalogEntry[]>([]);
   const [fallbackIds, setFallbackIds] = useState<Set<string>>(new Set());
   const [heldIds, setHeldIds] = useState<Set<string>>(new Set());
+  const [unlistedIds, setUnlistedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => { void fetchCommunity().then(setCommunity); }, []);
 
@@ -46,12 +47,13 @@ export default function App() {
     ];
   }, [session, community]);
 
-  const onBuilt = (slot: SlotDef, usedFallback: boolean, held: boolean) => {
+  const onBuilt = (slot: SlotDef, usedFallback: boolean, held: boolean, unlisted: boolean) => {
     const id = `session-${Date.now()}`;
     setSession((s) => [{ id, slot, source: 'session' }, ...s]);
     if (usedFallback) setFallbackIds((f) => new Set(f).add(slot.name));
     if (held) setHeldIds((h) => new Set(h).add(slot.name));
-    if (!usedFallback && !held) void fetchCommunity().then(setCommunity);
+    if (unlisted && slot.artId) setUnlistedIds((u) => new Set(u).add(slot.artId!));
+    if (!usedFallback && !held && !unlisted) void fetchCommunity().then(setCommunity);
   };
 
   // Route resolution. The decode MUST be memoized: an unstable slot
@@ -75,6 +77,11 @@ export default function App() {
             : fallbackIds.has(slot.name)
               ? 'Showing a themed preset — live generation needs the API key configured on the server.'
               : null}
+          canPublish={Boolean(slot.artId && unlistedIds.has(slot.artId))}
+          onPublished={() => {
+            if (slot.artId) setUnlistedIds((u) => { const n = new Set(u); n.delete(slot.artId!); return n; });
+            void fetchCommunity().then(setCommunity);
+          }}
           go={go}
         />
       : (
@@ -84,6 +91,8 @@ export default function App() {
           <button className="btn-build hero-cta" onClick={() => go('#/')}>BACK TO LOBBY</button>
         </section></div>
       );
+  } else if (hash.startsWith('#/fair')) {
+    page = <Fairness go={go} />;
   } else if (hash.startsWith('#/build')) {
     page = <Build onBuilt={onBuilt} go={go} />;
   } else {
@@ -95,7 +104,7 @@ export default function App() {
       <header className="topbar">
         <button className="logo logo-btn" onClick={() => go('#/')} aria-label="Winsmyth lobby">
           <h1>WINSMYTH</h1>
-          <div className="sub">Social Casino · Free to Play</div>
+          <div className="sub">Social Casino · Free to Play · <a className="fair-link" href="#/fair">Fair play</a></div>
         </button>
         <div className="wallet">
           <button className="mute" onClick={() => setMuted(sound.toggleMute())} aria-label="Toggle sound">

@@ -20,7 +20,7 @@ export default async (req: Request) => {
     if (!res.ok) return Response.json({ machines: [] });
     const d = await res.json();
     const machines = (d.records ?? [])
-      .map((r: { id: string; fields: { spec_json?: string; game_type?: string; reels?: number; house?: unknown } }) => {
+      .map((r: { id: string; fields: { spec_json?: string; game_type?: string; reels?: number; house?: unknown; plays?: number } }) => {
         try {
           return {
             id: r.id,
@@ -28,6 +28,7 @@ export default async (req: Request) => {
             gameType: r.fields.game_type ?? 'paylines',
             reels: r.fields.reels === 3 ? 3 : 5,
             house: r.fields.house === true || r.fields.house === 1,
+            plays: Number(r.fields.plays ?? 0),
           };
         } catch { return null; }
       })
