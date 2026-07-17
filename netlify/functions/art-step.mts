@@ -16,7 +16,7 @@
 import { getStore } from '@netlify/blobs';
 
 interface AssetState { key?: string; status: 'pending' | 'stored' | 'ok' | 'fallback'; attempts: number; reason?: string }
-interface ArtState { assets: Record<string, AssetState>; done: boolean }
+interface ArtState { assets: Record<string, AssetState>; done: boolean; gen?: string }
 
 // Player-selectable art styles. Each block is the consistent language the
 // pipeline uses with the image model; the id is also written to the registry
@@ -289,6 +289,10 @@ export default async (req: Request) => {
 
     let state: ArtState;
     try { state = JSON.parse(f.art_json || ''); } catch { state = { assets: {}, done: false }; }
+    // Cache-busting generation stamp: every forge run writes to UNIQUE keys,
+    // so immutable caching can never serve a previous forge's art after a
+    // re-forge. Minted once per run, persisted with the state.
+    if (!state.gen) state.gen = Date.now().toString(36);
     ids.forEach((sid) => { if (!state.assets[sid]) state.assets[sid] = { status: 'pending', attempts: 0 }; });
 
     if (state.done) {
@@ -384,7 +388,7 @@ export default async (req: Request) => {
       await airtablePatch(base, token, id, { art_json: JSON.stringify(state), art_status: 'partial' }).catch(() => undefined);
       return Response.json({ phase: 'generation_error', asset: next, reason: a.reason, ...counts(state, ids.length), artMap: publicMap(state) });
     }
-    const key = `art/${id}/${next}-${a.attempts}.png`;
+    const key = `art/${id}/${state.gen}/${next}-${a.attempts}.png`;
     await store.set(key, bytes);
     a.key = key;
     a.status = 'stored';

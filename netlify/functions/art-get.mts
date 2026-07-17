@@ -6,7 +6,7 @@ import { getStore } from '@netlify/blobs';
 export default async (req: Request) => {
   const url = new URL(req.url);
   const key = url.searchParams.get('key') ?? '';
-  if (!/^art\/rec[A-Za-z0-9]{14,17}\/[a-z0-9-]+\.png$/.test(key)) {
+  if (!/^art\/rec[A-Za-z0-9]{14,17}\/([a-z0-9]+\/)?[a-z0-9-]+\.png$/.test(key)) {
     return new Response('Bad key', { status: 400 });
   }
   const store = getStore({ name: 'machine-art', consistency: 'strong' });
