@@ -9,7 +9,7 @@ export default async (req: Request) => {
   if (!/^art\/rec[A-Za-z0-9]{14,17}\/[a-z0-9-]+\.png$/.test(key)) {
     return new Response('Bad key', { status: 400 });
   }
-  const store = getStore('machine-art');
+  const store = getStore({ name: 'machine-art', consistency: 'strong' });
   const bytes = await store.get(key, { type: 'arrayBuffer' });
   if (!bytes) return new Response('Not found', { status: 404 });
   return new Response(bytes, {

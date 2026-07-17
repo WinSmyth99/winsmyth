@@ -295,7 +295,7 @@ export default async (req: Request) => {
       return Response.json({ phase: 'done', ...counts(state, ids.length), artMap: publicMap(state) });
     }
 
-    const store = getStore('machine-art');
+    const store = getStore({ name: 'machine-art', consistency: 'strong' });
 
     // Phase B first: critique any stored-but-unjudged asset
     const toJudge = ids.find((sid) => state.assets[sid].status === 'stored');

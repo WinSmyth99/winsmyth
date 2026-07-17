@@ -108,12 +108,25 @@ export default async () => {
   }
   try {
     const { getStore } = await import('@netlify/blobs');
-    const store = getStore({ name: 'machine-art', consistency: 'strong' });
-    await store.set('__health__', 'ok');
-    const v = await store.get('__health__', { type: 'text' });
-    out.blobs = v === 'ok' ? 'ok' : 'read-mismatch';
-    await store.delete('__health__');
-  } catch (e) { out.blobs = { error: String(e).slice(0, 200) }; }
+    const strong = getStore({ name: 'machine-art', consistency: 'strong' });
+    const eventual = getStore('machine-art');
+    await strong.set('__health__', 'ok');
+    const vs = await strong.get('__health__', { type: 'text' });
+    const ve = await eventual.get('__health__', { type: 'text' });
+    const meta = await strong.getMetadata('__health__').catch(() => null);
+    let keyCount = -1;
+    try {
+      const listing = await strong.list({ prefix: 'art/' });
+      keyCount = listing.blobs?.length ?? -1;
+    } catch { /* listing unsupported or failed */ }
+    out.blobs = {
+      strong_read: vs === 'ok' ? 'ok' : `got:${JSON.stringify(vs)?.slice(0, 60)}`,
+      eventual_read: ve === 'ok' ? 'ok' : `got:${JSON.stringify(ve)?.slice(0, 60)}`,
+      metadata_present: Boolean(meta),
+      art_keys_visible: keyCount,
+    };
+    await strong.delete('__health__');
+  } catch (e) { out.blobs = { error: String(e).slice(0, 250) }; }
 
   return Response.json(out);
 };
