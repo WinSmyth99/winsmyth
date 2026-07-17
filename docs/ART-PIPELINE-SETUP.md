@@ -1,3 +1,20 @@
+# REQUIRED AIRTABLE FIELDS (complete checklist)
+
+Run /api/health after any change: it now probes every field below by name
+and reports `MISSING` for any that are absent.
+
+**Table `machines`:** name, spec_json, status (single select: live, pending,
+rejected, unlisted), game_type, reels, prompt, triage_reasons, art_json
+(long text), art_status, house (checkbox), plays (number)
+
+**Table `assets`:** asset_key, kind, subject_tag, archetype, theme_style,
+style_version, status (single select: ok, retired), uses (number),
+machine_id, created_at, palette, art_style
+
+All text fields are Single line text unless noted.
+
+---
+
 # Art pipeline setup — Layer 2 (mark 2, step 2)
 
 Two additions: a fal.ai key and two Airtable fields. Until both exist,

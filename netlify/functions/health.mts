@@ -59,5 +59,61 @@ export default async () => {
     out.airtable_write = { error: String(e).slice(0, 200) };
   }
 
+  // ── Required-field probes: a filterByFormula naming a missing field
+  // returns 422, which tells us EXACTLY which Airtable field is absent. ──
+  const probeField = async (table: string, field: string) => {
+    try {
+      const u = new URL(`https://api.airtable.com/v0/${base}/${table}`);
+      u.searchParams.set('filterByFormula', `{${field}}=''`);
+      u.searchParams.set('maxRecords', '1');
+      const r = await fetch(u, { headers: { authorization: `Bearer ${token}` } });
+      return r.ok ? 'ok' : 'MISSING';
+    } catch { return 'unreachable'; }
+  };
+  out.machines_fields = {
+    status: await probeField('machines', 'status'),
+    art_json: await probeField('machines', 'art_json'),
+    art_status: await probeField('machines', 'art_status'),
+    house: await probeField('machines', 'house'),
+    plays: await probeField('machines', 'plays'),
+  };
+  out.assets_fields = {
+    asset_key: await probeField('assets', 'asset_key'),
+    kind: await probeField('assets', 'kind'),
+    subject_tag: await probeField('assets', 'subject_tag'),
+    archetype: await probeField('assets', 'archetype'),
+    theme_style: await probeField('assets', 'theme_style'),
+    style_version: await probeField('assets', 'style_version'),
+    uses: await probeField('assets', 'uses'),
+    palette: await probeField('assets', 'palette'),
+    art_style: await probeField('assets', 'art_style'),
+  };
+
+  // ── Provider probes ──
+  out.fal_key_set = Boolean(process.env.FAL_KEY);
+  out.fal_model = process.env.FAL_MODEL || 'fal-ai/recraft-v3 (default)';
+  if (process.env.ANTHROPIC_API_KEY) {
+    try {
+      const a = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+      });
+      out.anthropic_api = a.ok ? 'ok' : { status: a.status, body: (await a.text()).slice(0, 300) };
+    } catch (e) { out.anthropic_api = { error: String(e).slice(0, 200) }; }
+  }
+  try {
+    const { getStore } = await import('@netlify/blobs');
+    const store = getStore({ name: 'machine-art', consistency: 'strong' });
+    await store.set('__health__', 'ok');
+    const v = await store.get('__health__', { type: 'text' });
+    out.blobs = v === 'ok' ? 'ok' : 'read-mismatch';
+    await store.delete('__health__');
+  } catch (e) { out.blobs = { error: String(e).slice(0, 200) }; }
+
   return Response.json(out);
 };

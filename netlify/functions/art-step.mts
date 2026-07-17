@@ -15,7 +15,7 @@
 
 import { getStore } from '@netlify/blobs';
 
-interface AssetState { key?: string; status: 'pending' | 'stored' | 'ok' | 'fallback'; attempts: number }
+interface AssetState { key?: string; status: 'pending' | 'stored' | 'ok' | 'fallback'; attempts: number; reason?: string }
 interface ArtState { assets: Record<string, AssetState>; done: boolean }
 
 // Player-selectable art styles. Each block is the consistent language the
@@ -318,6 +318,7 @@ export default async (req: Request) => {
         a.status = 'pending'; // one regeneration allowed
       } else {
         a.status = 'fallback'; // emoji stays for this symbol
+        a.reason = (verdict.reasons ?? []).join('; ').slice(0, 160) || 'critic_failed';
       }
       const allSettled = ids.every((sid) => ['ok', 'fallback'].includes(state.assets[sid].status));
       state.done = allSettled;
@@ -366,11 +367,23 @@ export default async (req: Request) => {
       : next === 'marque'
         ? `${MARQUE_STYLE} Art treatment: ${sBlock} The sign says: "${String(spec.name ?? '').slice(0, 30)}".`
         : `${sBlock} The object: ${names[next]}. Mood: ${mood}. Accent colour ${String(spec.color ?? '#FF3DA5')}, ${norm(String(spec.themeStyle ?? 'default'))} atmosphere.`;
-    const bytes = await generateImage(
-      prompt,
-      String(spec.color ?? '#FF3DA5'),
-      next === 'bg' || next === 'marque' ? 'landscape_16_9' : 'square_hd',
-    );
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await generateImage(
+        prompt,
+        String(spec.color ?? '#FF3DA5'),
+        next === 'bg' || next === 'marque' ? 'landscape_16_9' : 'square_hd',
+      );
+    } catch (e) {
+      // Provider failure (key, credits, model, network). Burn an attempt,
+      // record why, and keep the forge moving: after two failures the
+      // asset falls back to emoji instead of stalling the machine.
+      a.attempts += 1;
+      a.reason = String(e).slice(0, 160);
+      if (a.attempts >= 2) a.status = 'fallback';
+      await airtablePatch(base, token, id, { art_json: JSON.stringify(state), art_status: 'partial' }).catch(() => undefined);
+      return Response.json({ phase: 'generation_error', asset: next, reason: a.reason, ...counts(state, ids.length), artMap: publicMap(state) });
+    }
     const key = `art/${id}/${next}-${a.attempts}.png`;
     await store.set(key, bytes);
     a.key = key;
