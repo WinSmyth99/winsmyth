@@ -1,155 +1,225 @@
-// Game presentation components — extracted from App for the Phase C
-// page split. Rendering only; the useGame hook owns the clock.
+// The four win-evaluation mechanics behind one dispatcher — ported from
+// the v19 prototype with globals removed (free-spin context and money
+// mode are explicit parameters). The paytable contracts from v19 hold:
+// paylines 5-of-a-kind at multiplier m pays bet * m * 0.6 per full line
+// (the 300x = 450,000 GC at 2,500 bet regression anchor).
 
-import { useMemo } from 'react';
-import { useGame } from '../hooks/useGame';
-import { GridSym, ROWS, scatterMinHit, SlotDef } from '../engine';
-import { displayPrizeGC } from '../lib/paymath';
+import {
+  Cell, CellRef, EvalResult, FreeSpinCtx, Grid, GridSym, MoneyMode,
+  ROWS, SlotDef, Win,
+} from './types';
 
-export const fmt = (n: number) => n.toLocaleString('en-US');
+// 9 paylines on a 5x3 grid (row index per reel). 3-reel machines use
+// the first 5 truncated to 3 reels.
+export const PAYLINES_5: number[][] = [
+  [1, 1, 1, 1, 1],
+  [0, 0, 0, 0, 0],
+  [2, 2, 2, 2, 2],
+  [0, 1, 2, 1, 0],
+  [2, 1, 0, 1, 2],
+  [0, 0, 1, 2, 2],
+  [2, 2, 1, 0, 0],
+  [1, 0, 1, 2, 1],
+  [1, 2, 1, 0, 1],
+];
 
-// artMap: symbol slot-id → blob key, served via /api/art-get.
-export type ArtMap = Record<string, string>;
-
-export function artIdFor(slot: SlotDef, sym: GridSym): string | null {
-  if (sym.isWild) return 'wild';
-  if (sym.isBonus) return 'scatter';
-  const i = slot.symbols.findIndex((s) => s.emoji === sym.emoji);
-  return i >= 0 ? `s${i}` : null;
+export function paylinesFor(reels: number): number[][] {
+  if (reels >= 5) return PAYLINES_5;
+  return PAYLINES_5.slice(0, 5).map((l) => l.slice(0, reels));
 }
 
-export function SymbolCell({ sym, hl, accent, artKey }: { sym: GridSym; hl?: boolean; accent: string; artKey?: string }) {
-  const tierCls = sym.isWild ? 'wild' : sym.isBonus ? 'scatter' : sym.tier ?? 'low';
-  return (
-    <div
-      className={`cell plate-${tierCls}${hl ? ' hl' : ''}`}
-      style={sym.isWild ? { boxShadow: `0 0 18px ${accent}` } : undefined}
-    >
-      {artKey
-        ? <img className="cell-art" src={`/api/art-get?key=${encodeURIComponent(artKey)}`} alt={sym.name} loading="lazy" />
-        : <span className="cell-emoji">{sym.emoji}</span>}
-    </div>
-  );
+function roundPrize(raw: number, mode: MoneyMode): number {
+  return mode === 'gc'
+    ? Math.max(1, Math.floor(raw))
+    : Math.max(0.01, Math.round(raw * 100) / 100);
 }
 
-export function Reels({ slot, state, artMap }: { slot: SlotDef; state: ReturnType<typeof useGame>['state']; artMap?: ArtMap }) {
-  const shown = state.view?.grid ?? state.grid;
-  // Fixed 12-cell pattern, rendered twice: translateY(-50%) then equals
-  // exactly one period, so the scroll loops seamlessly at any reel width.
-  const base = [...slot.symbols, ...slot.symbols.slice().reverse()];
-  const pattern = Array.from({ length: 12 }, (_, i) => base[i % base.length]);
-  return (
-    <div className="reels-area">
-      {state.view?.badgeMult ? <div className="cascade-badge">CASCADE ×{state.view.badgeMult}</div> : null}
-      <div className="reels" style={{ gridTemplateColumns: `repeat(${slot.reels}, 1fr)` }}>
-        {Array.from({ length: slot.reels }, (_, reel) => {
-          const rp = state.reelPhases[reel] ?? 'idle';
-          const spinningNow = rp === 'spinning' || rp === 'anticipating';
-          return (
-            <div key={reel} className={`reel${rp === 'stopped' ? ' settled' : ''}`}>
-              {Array.from({ length: ROWS }, (_, row) => {
-                const cell = shown?.[reel]?.[row];
-                const key = `${reel}:${row}`;
-                const hl = !spinningNow && (state.view?.highlight.has(key) ?? false);
-                const pop = !spinningNow && (state.view?.popping.has(key) ?? false);
-                const ak = cell ? artIdFor(slot, cell.sym) : null;
-                return cell
-                  ? (
-                    <div key={row} className={pop ? 'pop-wrap' : ''}>
-                      <SymbolCell sym={cell.sym} hl={hl} accent={slot.color} artKey={ak ? artMap?.[ak] : undefined} />
-                    </div>
-                  )
-                  : <div key={row} className="cell plate-low"><span className="cell-emoji">•</span></div>;
-              })}
-              {spinningNow && (
-                <div className={`loop-overlay${rp === 'anticipating' ? ' anticipating' : ''}`}>
-                  <div className="loop-track">
-                    {[...pattern, ...pattern].map((s, i) => {
-                      const ak = artMap?.[`s${slot.symbols.findIndex((x) => x.emoji === s.emoji)}`];
-                      return (
-                        <div key={i} className="loop-cell">
-                          {ak
-                            ? <img className="cell-art" src={`/api/art-get?key=${encodeURIComponent(ak)}`} alt="" loading="lazy" />
-                            : <span className="cell-emoji">{s.emoji}</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+function countScatters(grid: Grid, bonusEmoji: string): number {
+  let n = 0;
+  grid.forEach((col) => col.forEach((c) => { if (c.sym.emoji === bonusEmoji) n++; }));
+  return n;
 }
 
-export function Paytable({ slot }: { slot: SlotDef }) {
-  const cols = useMemo(() => {
-    if (slot.gameType === 'scatter') {
-      const m0 = scatterMinHit(slot);
-      return [
-        { label: `${m0}-${m0 + 1}`, mf: 1 / 10 },
-        { label: `${m0 + 2}-${m0 + 4}`, mf: 1 / 3 },
-        { label: `${m0 + 5}+`, mf: 1 },
-      ];
+function expandBoost(sym: GridSym, fs?: FreeSpinCtx): number {
+  return fs && fs.expandEmoji && sym.emoji === fs.expandEmoji ? 2 : 1;
+}
+
+// ── CLASSIC LINES ──────────────────────────────────────────────────
+export function evaluateLines(
+  slot: SlotDef, grid: Grid, bet: number, mode: MoneyMode = 'gc', fs?: FreeSpinCtx,
+): EvalResult {
+  const lines = paylinesFor(slot.reels);
+  const wildE = slot.wildSymbol.emoji;
+  const wins: Win[] = [];
+
+  lines.forEach((line, lineIdx) => {
+    const cells: Cell[] = line.map((row, reel) => grid[reel][row]);
+    // find the base symbol: first non-wild in the run
+    let base: GridSym | null = null;
+    for (const c of cells) {
+      if (c.sym.emoji !== wildE && !c.sym.isBonus) { base = c.sym; break; }
+      if (c.sym.isBonus) return; // scatter breaks a line at its position
     }
-    if (slot.gameType === 'cluster') {
-      return [
-        { label: '5', mf: 1 / 10 }, { label: '6', mf: 1 / 5 }, { label: '7', mf: 1 / 3 },
-        { label: '8', mf: 1 / 2 }, { label: '9+', mf: 1 },
-      ];
+    if (!base || base.multiplier <= 0) return;
+    let count = 0;
+    for (const c of cells) {
+      if (c.sym.emoji === base.emoji || c.sym.emoji === wildE) count++;
+      else break;
     }
-    return [
-      { label: '2×', mf: 1 / 30, premOnly: true }, { label: '3×', mf: 1 / 10 },
-      { label: '4×', mf: 1 / 3 }, { label: '5×', mf: 1 },
-    ];
-  }, [slot]);
+    const minMatch = base.tier === 'premium' ? 2 : 3;
+    if (count < minMatch) return;
+    const nr = slot.reels;
+    let mf = count === nr ? 1 : count === nr - 1 ? 1 / 3 : count === nr - 2 ? 1 / 10 : 1 / 30;
+    mf *= expandBoost(base, fs);
+    // NOTE: bet * mult * mf * 0.6 directly — mathematically identical to
+    // perLineBet * lines * ..., but the divide-then-multiply round-trip
+    // loses 1 unit to floating point on some cells (149,999 vs 150,000).
+    // The paytable display (lib/paymath) mirrors this exact expression.
+    const raw = bet * base.multiplier * mf * 0.6;
+    const prize = roundPrize(raw, mode);
+    wins.push({
+      lineIdx, rows: line, symbol: base, count, prize,
+      cells: line.slice(0, count).map((row, reel) => ({ reel, row })),
+    });
+  });
 
-  const note = slot.gameType === 'ways'
-    ? 'Wins pay left-to-right on adjacent reels in any row — all ways. Values shown are per way.'
-    : slot.gameType === 'scatter'
-      ? `No paylines: ${scatterMinHit(slot)}+ matching symbols anywhere pay. Wilds count toward every symbol.`
-      : slot.gameType === 'cluster'
-        ? 'No paylines: clusters of 5+ touching symbols pay. Wilds join any cluster.'
-        : 'Wins pay left-to-right across 9 paylines. Values shown at a 2,500 bet.';
-
-  return (
-    <div className="paytable">
-      <table>
-        <thead>
-          <tr><th>Symbol</th>{cols.map((c) => <th key={c.label}>{c.label}</th>)}</tr>
-        </thead>
-        <tbody>
-          {[...slot.symbols].reverse().map((s) => (
-            <tr key={s.emoji}>
-              <td className="pt-sym"><span>{s.emoji}</span> {s.name}</td>
-              {cols.map((c) => (
-                <td key={c.label} className="pt-val">
-                  {('premOnly' in c && c.premOnly && s.tier !== 'premium')
-                    ? '—'
-                    : fmt(displayPrizeGC(2500, s.multiplier, c.mf, slot.gameType === 'ways' ? 9 : 1))}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="pt-note">{note}</p>
-    </div>
-  );
+  return {
+    totalPrize: wins.reduce((a, w) => a + w.prize, 0),
+    lineWins: wins,
+    scatterCount: countScatters(grid, slot.bonusSymbol.emoji),
+  };
 }
 
-export function WinOverlay({ rollup, cascades, tier }: { rollup: number; cascades: number; tier: string }) {
-  const label = tier === 'jackpot' ? 'JACKPOT!' : tier === 'mega' ? 'MEGA WIN!' : 'BIG WIN!';
-  return (
-    <div className="win-overlay">
-      <div className="win-card">
-        <div className="win-label">{label}</div>
-        <div className="win-amount">+{fmt(rollup)} GC</div>
-        <div className="win-sub">{cascades > 1 ? `${cascades} cascades` : ''}</div>
-      </div>
-    </div>
-  );
+// ── ALL WAYS ───────────────────────────────────────────────────────
+// Matching symbols on consecutive reels, any row. Ways = product of
+// per-reel hit counts. WAYS_UNIT: each way pays 1/9 of the full-line
+// equivalent — a tuning constant, revisited at the RTP rebalance.
+export function evaluateWays(
+  slot: SlotDef, grid: Grid, bet: number, mode: MoneyMode = 'gc', fs?: FreeSpinCtx,
+): EvalResult {
+  const wildE = slot.wildSymbol.emoji;
+  const wins: Win[] = [];
+  slot.symbols.forEach((base) => {
+    let count = 0; let ways = 1; const cells: CellRef[] = [];
+    for (let reel = 0; reel < slot.reels; reel++) {
+      const hits: number[] = [];
+      for (let row = 0; row < ROWS; row++) {
+        const e = grid[reel][row].sym.emoji;
+        if (e === base.emoji || e === wildE) hits.push(row);
+      }
+      if (!hits.length) break;
+      count++; ways *= hits.length;
+      hits.forEach((row) => cells.push({ reel, row }));
+    }
+    const minMatch = base.tier === 'premium' ? 2 : 3;
+    if (count < minMatch) return;
+    const nr = slot.reels;
+    let mf = count === nr ? 1 : count === nr - 1 ? 1 / 3 : count === nr - 2 ? 1 / 10 : 1 / 30;
+    mf *= expandBoost(base, fs);
+    const raw = (bet * base.multiplier * mf * 0.6 * ways) / 9;
+    wins.push({ symbol: base, count, ways, prize: roundPrize(raw, mode), cells });
+  });
+  return {
+    totalPrize: wins.reduce((a, w) => a + w.prize, 0),
+    lineWins: wins,
+    scatterCount: countScatters(grid, slot.bonusSymbol.emoji),
+  };
+}
+
+// ── SCATTER PAYS ───────────────────────────────────────────────────
+// N+ matching anywhere. Threshold scales with grid size: 15 cells → 6+,
+// 9 cells → 4+. Wilds count toward every symbol's tally.
+export function scatterMinHit(slot: Pick<SlotDef, 'reels'>): number {
+  return Math.max(4, Math.ceil(slot.reels * ROWS * 0.4));
+}
+
+export function evaluateScatterPays(
+  slot: SlotDef, grid: Grid, bet: number, mode: MoneyMode = 'gc', fs?: FreeSpinCtx,
+): EvalResult {
+  const wildE = slot.wildSymbol.emoji;
+  const bonusE = slot.bonusSymbol.emoji;
+  const cellsBy: Record<string, CellRef[]> = {};
+  const wildCells: CellRef[] = [];
+  grid.forEach((col, reel) => col.forEach((c, row) => {
+    const e = c.sym.emoji;
+    if (e === wildE) { wildCells.push({ reel, row }); return; }
+    if (e === bonusE) return;
+    (cellsBy[e] = cellsBy[e] || []).push({ reel, row });
+  }));
+  const minHit = scatterMinHit(slot);
+  const wins: Win[] = [];
+  Object.entries(cellsBy).forEach(([e, cells]) => {
+    const n = cells.length + wildCells.length;
+    if (n < minHit) return;
+    const sym = slot.symbols.find((s) => s.emoji === e);
+    if (!sym) return;
+    let mf = n >= minHit + 5 ? 1 : n >= minHit + 2 ? 1 / 3 : 1 / 10;
+    mf *= expandBoost(sym, fs);
+    const raw = bet * sym.multiplier * mf * 0.6;
+    wins.push({ symbol: sym, count: n, prize: roundPrize(raw, mode), cells: cells.concat(wildCells) });
+  });
+  return {
+    totalPrize: wins.reduce((a, w) => a + w.prize, 0),
+    lineWins: wins,
+    scatterCount: countScatters(grid, bonusE),
+  };
+}
+
+// ── CLUSTER PAYS ───────────────────────────────────────────────────
+// 5+ matching symbols touching horizontally/vertically. Wilds join any
+// cluster but cannot seed one.
+export function evaluateCluster(
+  slot: SlotDef, grid: Grid, bet: number, mode: MoneyMode = 'gc', fs?: FreeSpinCtx,
+): EvalResult {
+  const wildE = slot.wildSymbol.emoji;
+  const wins: Win[] = [];
+  slot.symbols.forEach((base) => {
+    const seen = new Set<string>();
+    for (let reel = 0; reel < slot.reels; reel++) {
+      for (let row = 0; row < ROWS; row++) {
+        if (seen.has(`${reel}:${row}`)) continue;
+        if (grid[reel][row].sym.emoji !== base.emoji) continue;
+        const stack: [number, number][] = [[reel, row]];
+        const cluster: CellRef[] = [];
+        const vis = new Set<string>();
+        while (stack.length) {
+          const [r, w] = stack.pop()!;
+          const k = `${r}:${w}`;
+          if (vis.has(k)) continue;
+          vis.add(k);
+          const e = grid[r][w].sym.emoji;
+          if (e !== base.emoji && e !== wildE) continue;
+          cluster.push({ reel: r, row: w });
+          ([[r + 1, w], [r - 1, w], [r, w + 1], [r, w - 1]] as [number, number][]).forEach(([rr, ww]) => {
+            if (rr >= 0 && rr < slot.reels && ww >= 0 && ww < ROWS) stack.push([rr, ww]);
+          });
+        }
+        cluster.forEach((c) => seen.add(`${c.reel}:${c.row}`));
+        if (cluster.length >= 5) {
+          const sz = cluster.length;
+          let mf = sz >= 9 ? 1 : sz >= 8 ? 1 / 2 : sz >= 7 ? 1 / 3 : sz >= 6 ? 1 / 5 : 1 / 10;
+          mf *= expandBoost(base, fs);
+          const raw = bet * base.multiplier * mf * 0.6;
+          wins.push({ symbol: base, count: sz, prize: roundPrize(raw, mode), cells: cluster });
+        }
+      }
+    }
+  });
+  return {
+    totalPrize: wins.reduce((a, w) => a + w.prize, 0),
+    lineWins: wins,
+    scatterCount: countScatters(grid, slot.bonusSymbol.emoji),
+  };
+}
+
+// ── DISPATCHER — the single evaluation entry point ─────────────────
+export function evaluateGrid(
+  slot: SlotDef, grid: Grid, bet: number, mode: MoneyMode = 'gc', fs?: FreeSpinCtx,
+): EvalResult {
+  switch (slot.gameType) {
+    case 'ways': return evaluateWays(slot, grid, bet, mode, fs);
+    case 'scatter': return evaluateScatterPays(slot, grid, bet, mode, fs);
+    case 'cluster': return evaluateCluster(slot, grid, bet, mode, fs);
+    default: return evaluateLines(slot, grid, bet, mode, fs);
+  }
 }
