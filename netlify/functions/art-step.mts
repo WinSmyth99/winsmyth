@@ -259,11 +259,18 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 // Critic criteria are style-aware: the expected style passed in is the
 // SAME block the generation prompt used, so the gate can never fail art
 // for being exactly what was asked for.
-const CRITIC_MARQUE_SYS = (style: string) => `You review a game TITLE LOGO image. FAIL (pass=false) if ANY of these: no legible lettering; the words shown are not exactly the given title, or include any extra words, codes, hashtags or hex values; it looks like a PHOTOGRAPH or a real physical object (an actual sign, board, plaque, easel, poster on a wall); there is any room, environment, scene, people or props around the lettering — it MUST be a clean flat title graphic on a plain background; clashes badly with the intended art treatment: "${style}"; disturbing or adult content. Minor stylised letter quirks are acceptable. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_MARQUE_SYS = (_style: string) => `You review a game TITLE LOGO image. FAIL (pass=false) ONLY if: there is no legible lettering at all; or the lettering is garbled/nonsense; or it shows extra codes, hashtags or hex values in addition to the title; or it contains disturbing or adult content. Ignore all other issues — exact wording, style, background and whether it looks like a photo do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
-const CRITIC_BG_SYS = (style: string) => `You review backdrop art for a game screen. FAIL (pass=false) if ANY of these: contains ANY letters, words, numbers or typography anywhere; so bright or busy that game UI would be illegible on top; clearly off-style for the intended art treatment: "${style}"; disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_BG_SYS = (_style: string) => `You review backdrop art for a game screen. FAIL (pass=false) ONLY if: it contains ANY readable letters, words, numbers or typography anywhere; or it contains disturbing or adult content. Ignore all other issues — style, brightness and composition do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
-const CRITIC_SYS = (style: string) => `You review slot machine symbol art. FAIL (pass=false) if ANY of these: the image contains ANY text, letters, numbers, hashtags or hex codes anywhere (symbols must be text-free); the image does NOT clearly depict the stated subject; the background is a SCENE, environment, room, landscape or has secondary props/objects (the subject MUST sit on a plain simple solid background with clear margin — fail anything busy); more than one main subject; depicts an entire slot machine, casino sign, poster or storefront rather than a single subject emblem; unreadable as an icon at 100px; clearly off-style for the intended art treatment: "${style}"; disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+// SHOWCASE MODE (Option B): the critic no longer gates on aesthetics
+// (scene, style, duplicates, subject-match, framing). It keeps ONLY the
+// guard whose failure looks unmistakably broken — baked-in text, numbers,
+// hex codes, or adult content. This maximises speed and completeness
+// (almost nothing falls back) while never shipping a symbol with words or
+// codes written across it. To restore full quality gating, revert the
+// three CRITIC_* prompts to their pre-v33 form.
+const CRITIC_SYS = (_style: string) => `You review slot machine symbol art. FAIL (pass=false) ONLY if: the image contains ANY readable text, letters, words, numbers, hashtags or hex codes anywhere; or it contains disturbing or adult content. Ignore all other issues — style, composition, background, duplicates and subject accuracy do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
 // Critic failure paths fail CLOSED: an unreviewed image never ships.
 // Transient errors are retried (criticAttempts in the caller); a second
