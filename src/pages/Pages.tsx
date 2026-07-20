@@ -253,6 +253,19 @@ export function Machine({ slot, note, canPublish, onPublished, go }: { slot: Slo
     setArtMap({});
     if (!slot.artId) return;
     const id = slot.artId;
+    // Rehydrate first: a finished machine reopened from the lobby has its
+    // art persisted on the row. Seed the map so background, marque and
+    // symbols show at once, rather than blank until a full re-forge (which
+    // may never complete within the step budget — bg is generated last).
+    (async () => {
+      try {
+        const r = await fetch(`/api/art-map?id=${encodeURIComponent(id)}`);
+        if (r.ok && artAlive.current) {
+          const d = await r.json();
+          if (d.artMap && Object.keys(d.artMap).length) setArtMap(d.artMap);
+        }
+      } catch { /* fall through to live forge */ }
+    })();
     let steps = 0;
     setArtBusy(true);
     // Forge never traps: released on completion, on any error, or at 90s.
@@ -269,7 +282,7 @@ export function Machine({ slot, note, canPublish, onPublished, go }: { slot: Slo
           if (!res.ok) break; // unconfigured / ineligible / failed → emoji stays
           const d = await res.json();
           if (!artAlive.current) break;
-          if (d.artMap) setArtMap(d.artMap);
+          if (d.artMap) setArtMap((prev) => ({ ...prev, ...d.artMap }));
           if (typeof d.completed === 'number' && typeof d.total === 'number') {
             setProgress({ completed: d.completed, total: d.total });
           }
@@ -319,13 +332,13 @@ export function Machine({ slot, note, canPublish, onPublished, go }: { slot: Slo
 
   return (
     <div className="machine-page">
-      {artMap.bg && (
-        <div
-          className="page-bg"
-          style={{ backgroundImage: `url(/api/art-get?key=${encodeURIComponent(artMap.bg)})` }}
-          aria-hidden="true"
-        />
-      )}
+      <div
+        className="page-bg"
+        style={artMap.bg
+          ? { backgroundImage: `url(/api/art-get?key=${encodeURIComponent(artMap.bg)})` }
+          : { background: `radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, ${slot.color} 32%, #140b28) 0%, #0c0620 70%)` }}
+        aria-hidden="true"
+      />
       <div className="machine-nav">
         <button className="chip" onClick={() => go('#/')}>← Lobby</button>
         <button className="chip" onClick={() => go('#/build')}>Build another</button>
@@ -333,14 +346,7 @@ export function Machine({ slot, note, canPublish, onPublished, go }: { slot: Slo
       </div>
       <div
         className="machine"
-        style={{
-          '--mc': slot.color,
-          ...(artMap.bg ? {
-            backgroundImage: `linear-gradient(rgba(18,8,38,.55), rgba(18,8,38,.78)), url(/api/art-get?key=${encodeURIComponent(artMap.bg)})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          } : {}),
-        } as React.CSSProperties}
+        style={{ '--mc': slot.color } as React.CSSProperties}
       >
         <div className="marque">
           {artMap.marque

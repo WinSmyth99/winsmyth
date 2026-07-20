@@ -63,9 +63,11 @@ const styleBlock = (spec: { artStyle?: string }) => STYLE_BLOCKS[spec.artStyle ?
 // block, so marques and backdrops match the player's selected style
 // instead of always reading synthwave.
 const MARQUE_BASE =
-  'A game-title sign artwork, wide landscape composition. The sign displays ONLY the given words ' +
-  'in stylish decorative lettering that matches the art treatment — no other text, no scene beyond ' +
-  'the sign, no people.';
+  'A video-game TITLE LOGO. The given words rendered as bold decorative themed lettering, centred, ' +
+  'filling the frame as a clean wordmark. Flat graphic title-card treatment on a plain simple dark ' +
+  'background. This is NOT a photograph and NOT a physical object: no real sign, board, plaque, ' +
+  'easel, poster or wall, no room, no environment, no scene, no people, no props around the text. ' +
+  'Only the stylised title lettering itself.';
 
 const BG_BASE =
   'Wide atmospheric landscape backdrop for a game screen, cinematic depth, composed so bright game ' +
@@ -76,8 +78,8 @@ function slotLabels(spec: { symbols: { name: string; archetype?: string }[]; wil
   const names: Record<string, string> = {};
   const archs: Record<string, string> = {};
   spec.symbols.forEach((s, i) => { names[`s${i}`] = s.name; archs[`s${i}`] = s.archetype || 'other'; });
-  names.wild = `${spec.wildSymbol.name}, extra ornate with golden accents`;
-  names.scatter = `${spec.bonusSymbol.name}, mystical with cyan energy glow`;
+  names.wild = spec.wildSymbol.name;
+  names.scatter = spec.bonusSymbol.name;
   names.marque = '';
   names.bg = '';
   return { ids, names, archs };
@@ -247,11 +249,11 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 // Critic criteria are style-aware: the expected style passed in is the
 // SAME block the generation prompt used, so the gate can never fail art
 // for being exactly what was asked for.
-const CRITIC_MARQUE_SYS = (style: string) => `You review a game-title SIGN image. FAIL (pass=false) if ANY of these: no legible lettering at all; the sign shows words other than, or in addition to, the given title — including any codes, hashtags or hex values; depicts a scene, people, or objects beyond the sign itself; clashes badly with the intended art treatment: "${style}"; disturbing or adult content. Minor stylised letter quirks are acceptable. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_MARQUE_SYS = (style: string) => `You review a game TITLE LOGO image. FAIL (pass=false) if ANY of these: no legible lettering; the words shown are not exactly the given title, or include any extra words, codes, hashtags or hex values; it looks like a PHOTOGRAPH or a real physical object (an actual sign, board, plaque, easel, poster on a wall); there is any room, environment, scene, people or props around the lettering — it MUST be a clean flat title graphic on a plain background; clashes badly with the intended art treatment: "${style}"; disturbing or adult content. Minor stylised letter quirks are acceptable. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
 const CRITIC_BG_SYS = (style: string) => `You review backdrop art for a game screen. FAIL (pass=false) if ANY of these: contains ANY letters, words, numbers or typography anywhere; so bright or busy that game UI would be illegible on top; clearly off-style for the intended art treatment: "${style}"; disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
-const CRITIC_SYS = (style: string) => `You review slot machine symbol art. FAIL (pass=false) if ANY of these: the image contains ANY text, letters, numbers, hashtags or hex codes anywhere (symbols must be text-free); the image does NOT clearly depict the stated subject; depicts an entire slot machine, casino sign, poster or storefront rather than a single subject emblem; multiple competing subjects or a full scene; unreadable as an icon at 100px; clearly off-style for the intended art treatment: "${style}"; disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_SYS = (style: string) => `You review slot machine symbol art. FAIL (pass=false) if ANY of these: the image contains ANY text, letters, numbers, hashtags or hex codes anywhere (symbols must be text-free); the image does NOT clearly depict the stated subject; the background is a SCENE, environment, room, landscape or has secondary props/objects (the subject MUST sit on a plain simple solid background with clear margin — fail anything busy); more than one main subject; depicts an entire slot machine, casino sign, poster or storefront rather than a single subject emblem; unreadable as an icon at 100px; clearly off-style for the intended art treatment: "${style}"; disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
 // Critic failure paths fail CLOSED: an unreviewed image never ships.
 // Transient errors are retried (criticAttempts in the caller); a second
@@ -408,7 +410,6 @@ export default async (req: Request) => {
       return Response.json({ phase: 'done', ...counts(state, ids.length), artMap: publicMap(state) });
     }
     const a = state.assets[next];
-    const mood = String(spec.tagline ?? '').replace(/["']/g, '');
     const { kind, tag } = assetTag(next, names[next] ?? '', String(spec.themeStyle ?? 'default'), archs[next], id);
 
     // Reuse-first: any critic-passed asset with the same subject tag and
@@ -433,11 +434,25 @@ export default async (req: Request) => {
 
     a.attempts += 1;
     const sBlock = styleBlock(spec as { artStyle?: string });
+    const accent = colourName(String(spec.color ?? ''));
+    // Composition clause forces a clean reel emblem, not a scene. This is
+    // the single highest-impact anti-scene guard: one subject, plain
+    // ground, icon framing. The tagline is deliberately NOT passed here
+    // (it drives narrative dioramas); it belongs only on the marque.
+    const ICON = 'Single centred subject, ONE object only, no scene, no secondary objects, no background props. ' +
+      'Plain simple solid dark background, evenly lit, generous even margin around the subject. ' +
+      'Composed as a clean game icon that reads clearly at small size.';
+    // Role treatment makes the hierarchy visible with zero text: the
+    // scatter and wild must be instantly distinguishable from pay symbols.
+    const roleClause =
+      next === 'scatter' ? ' This is the SCATTER symbol: give it a distinct radiant burst treatment, a glowing halo or emanating rays, unmistakably special versus ordinary symbols.'
+      : next === 'wild' ? ' This is the WILD symbol: present it as a premium bordered medallion or emblem, ornate frame, clearly more valuable than ordinary symbols.'
+      : '';
     const prompt = next === 'bg'
-      ? `${BG_BASE} Art treatment: ${sBlock} Mood: ${mood}. Do not render any text, letters, numbers or codes.`
+      ? `${BG_BASE} Art treatment: ${sBlock} Atmospheric ${accent}-lit ${norm(String(spec.themeStyle ?? 'default'))} scene with depth, sits behind a frosted glass panel so gentle richness is welcome. Do not render any text, letters, numbers or codes.`
       : next === 'marque'
-        ? `${MARQUE_BASE} Art treatment: ${sBlock} The sign displays ONLY these exact words and nothing else: "${String(spec.name ?? '').replace(/[^a-zA-Z0-9 '!&-]/g, '').slice(0, 30)}". Do not add any codes, hashtags, hex values or extra text.`
-        : `${sBlock} The object: ${names[next]}. Mood: ${mood}. Accent colour: ${colourName(String(spec.color ?? ''))}. ${norm(String(spec.themeStyle ?? 'default'))} atmosphere. Do not render any text, letters, numbers or codes in the image.`;
+        ? `${MARQUE_BASE} Art treatment: ${sBlock} The title reads ONLY these exact words and nothing else: "${String(spec.name ?? '').replace(/[^a-zA-Z0-9 '!&-]/g, '').slice(0, 30)}". Do not add any codes, hashtags, hex values or extra text.`
+        : `${sBlock} The subject: ${names[next]}. ${ICON}${roleClause} Accent colour: ${accent}. Do not render any text, letters, numbers or codes in the image.`;
     let bytes: ArrayBuffer;
     try {
       bytes = await generateImage(
