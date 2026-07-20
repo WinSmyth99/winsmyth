@@ -268,10 +268,20 @@ export function Machine({ slot, note, canPublish, onPublished, go }: { slot: Slo
     })();
     let steps = 0;
     setArtBusy(true);
-    // Forge never traps: released on completion, on any error, or at 90s.
-    const failsafe = window.setTimeout(() => { if (artAlive.current) setForging(false); }, 90_000);
+    // Budget scales with the machine's asset count. Each asset costs up to
+    // ~4 steps (generate, critique, one regenerate, re-critique) now that
+    // the critic actually runs and rejects scenes. A fixed 30-step / 90s
+    // cap (sized for the old no-critic pipeline) cut large machines off
+    // mid-forge, leaving later symbols as emoji. We instead loop until the
+    // server reports 'done', with generous ceilings derived from the real
+    // asset total the server sends back.
+    const symbolCount = slot.symbols.length + 2; // + wild + scatter
+    const assetTotal = symbolCount + 2; // + marque + bg
+    const stepCeiling = assetTotal * 5 + 10; // ample headroom for retries
+    const timeCeiling = Math.min(300_000, assetTotal * 12_000 + 30_000); // ~12s/asset, capped at 5 min
+    const failsafe = window.setTimeout(() => { if (artAlive.current) setForging(false); }, timeCeiling);
     (async () => {
-      while (artAlive.current && steps < 30) {
+      while (artAlive.current && steps < stepCeiling) {
         steps += 1;
         try {
           const res = await fetch('/api/art-step', {
