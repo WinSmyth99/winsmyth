@@ -179,14 +179,24 @@ async function registryLookup(
   } catch { return null; }
 }
 
-async function registryRegister(base: string, token: string, fields: Record<string, unknown>): Promise<void> {
+async function registryRegister(base: string, token: string, fields: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
   try {
-    await fetch(`https://api.airtable.com/v0/${base}/assets`, {
+    const r = await fetch(`https://api.airtable.com/v0/${base}/assets`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({ records: [{ fields }] }),
+      // typecast lets Airtable create missing select options instead of
+      // rejecting the whole record — the registry write was failing
+      // silently on option mismatches, so nothing persisted or got reused.
+      body: JSON.stringify({ records: [{ fields }], typecast: true }),
     });
-  } catch { /* registry is an optimisation — never fail the pipeline on it */ }
+    if (!r.ok) {
+      const body = (await r.text()).slice(0, 300);
+      return { ok: false, error: `airtable_${r.status}: ${body}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e).slice(0, 200) };
+  }
 }
 
 async function registryBumpUses(base: string, token: string, recId: string, uses: number): Promise<void> {
@@ -384,14 +394,19 @@ export default async (req: Request) => {
         a.status = 'ok';
         a.reason = undefined;
         const reg = toJudge === 'marque' ? null : assetTag(toJudge, names[toJudge] ?? '', String(spec.themeStyle ?? 'default'), archs[toJudge], id);
-        if (reg)
-          await registryRegister(base, token, {
+        if (reg) {
+          const regResult = await registryRegister(base, token, {
             asset_key: a.key, kind: reg.kind, subject_tag: reg.tag, archetype: reg.archetype,
             theme_style: String(spec.themeStyle ?? 'default'),
             palette: String(spec.color ?? ''),
             art_style: String((spec as { artStyle?: string }).artStyle ?? 'synthwave'),
             style_version: STYLE_VERSION, status: 'ok', uses: 1, machine_id: id,
           });
+          // Surface a persistence failure without blocking: the asset still
+          // serves on this machine, but we record WHY it didn't enter the
+          // reuse registry so an empty assets table is diagnosable.
+          if (!regResult.ok) a.reason = `registry_write_failed:${regResult.error ?? ''}`.slice(0, 160);
+        }
       } else if (a.attempts < 2) {
         a.status = 'pending'; // one regeneration allowed
       } else {

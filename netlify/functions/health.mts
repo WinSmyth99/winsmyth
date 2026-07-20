@@ -59,6 +59,42 @@ export default async () => {
     out.airtable_write = { error: String(e).slice(0, 200) };
   }
 
+  // Registry write test: sends the EXACT payload the art pipeline writes
+  // to the assets table (this is what was failing silently and leaving the
+  // table empty). typecast mirrors the pipeline so a missing select option
+  // is created rather than rejecting the record. Self-cleaning.
+  try {
+    const w = await fetch(`https://api.airtable.com/v0/${base}/assets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        records: [{
+          fields: {
+            asset_key: 'art/__healthcheck__/g/probe-1.png', kind: 'symbol',
+            subject_tag: '__healthcheck__', archetype: 'other', theme_style: 'default',
+            palette: '#FF3DA5', art_style: 'synthwave', style_version: 'healthcheck',
+            status: 'ok', uses: 1, machine_id: '__healthcheck__',
+          },
+        }],
+        typecast: true,
+      }),
+    });
+    if (w.ok) {
+      out.assets_write = 'ok';
+      const d = await w.json();
+      const id = d.records?.[0]?.id;
+      if (id) {
+        await fetch(`https://api.airtable.com/v0/${base}/assets/${id}`, {
+          method: 'DELETE', headers: { authorization: `Bearer ${token}` },
+        }).catch(() => undefined);
+      }
+    } else {
+      out.assets_write = { status: w.status, body: (await w.text()).slice(0, 400) };
+    }
+  } catch (e) {
+    out.assets_write = { error: String(e).slice(0, 200) };
+  }
+
   // ── Required-field probes: a filterByFormula naming a missing field
   // returns 422, which tells us EXACTLY which Airtable field is absent. ──
   const probeField = async (table: string, field: string) => {
