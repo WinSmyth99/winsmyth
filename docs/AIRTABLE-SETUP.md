@@ -14,7 +14,7 @@ Community machines row.
 |---|---|
 | `name` | Single line text (the existing primary field — rename it) |
 | `spec_json` | Long text |
-| `status` | Single select, options: `live`, `pending`, `rejected` |
+| `status` | Single select, options: `live`, `pending`, `rejected`, `unlisted` |
 | `game_type` | Single line text |
 | `reels` | Number (integer) |
 | `prompt` | Long text |
@@ -42,8 +42,10 @@ Then **Deploys → Trigger deploy → Deploy site** (vars need a fresh build).
 
 ## 5. Verify
 Build a machine on winsmyth.com → it should appear in the Airtable
-`machines` table with status `live` (or `pending` if triage flagged it)
-→ open winsmyth.com in an incognito window → the machine shows in the
+`machines` table with status `unlisted` (approved, private to its
+creator) or `pending` if triage flagged it → press "Publish to
+community" on the machine page → status flips to `live` → open
+winsmyth.com in an incognito window → the machine shows in the
 Community machines row.
 
 ## Reviewing flagged machines

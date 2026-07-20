@@ -15,7 +15,7 @@ For live generation locally: `npx netlify dev` with `ANTHROPIC_API_KEY` set.
 1. Push this repo to GitHub, connect it in Netlify (drag-and-drop does NOT support Functions).
 2. Set `ANTHROPIC_API_KEY` in Site settings → Environment variables.
 3. Optional (shared catalogue): set `AIRTABLE_TOKEN` and `AIRTABLE_BASE_ID` — see `docs/AIRTABLE-SETUP.md`. Without them the site runs session-only.
-3. Build settings come from `netlify.toml` (build `npm run build`, publish `dist`).
+4. Build settings come from `netlify.toml` (build `npm run build`, publish `dist`).
 
 Cost note: public generation runs on your key. The function rate-limits
 per IP in-memory (per-instance — not a real quota). Set a spend cap on
@@ -25,7 +25,7 @@ the key before sharing the URL widely.
 Generated symbol art via fal.ai (Recraft V3 default, swappable via `FAL_MODEL`), critic-gated by Claude vision, stored in Netlify Blobs. Setup: `docs/ART-PIPELINE-SETUP.md`. Without `FAL_KEY` machines stay emoji.
 
 ## Diagnostics
-Open `/api/health` on the deployed site: reports key/Airtable configuration and runs live read + self-cleaning write tests against the machines table. Airtable errors are returned verbatim — they name misconfigured fields.
+Open `/api/health` on the deployed site: reports key configuration, runs live read + self-cleaning write tests against the machines table, probes every required Airtable field by name (machines and assets), pings the Anthropic API, and round-trips a Netlify Blobs write/read/delete on both consistency modes. Airtable errors are returned verbatim — they name misconfigured fields.
 
 ## Structure
 - `src/engine/` — pure game engine: four game types, cascades, strips. No DOM. Contracts in `__tests__`.

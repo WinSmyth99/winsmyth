@@ -3,7 +3,7 @@
 
 import { useMemo, useState } from 'react';
 import { useGame } from '../hooks/useGame';
-import { GridSym, ROWS, scatterMinHit, SlotDef } from '../engine';
+import { GridSym, paylinesFor, ROWS, scatterMinHit, SlotDef } from '../engine';
 import { displayPrizeGC } from '../lib/paymath';
 
 export const fmt = (n: number) => n.toLocaleString('en-US');
@@ -110,10 +110,16 @@ export function Paytable({ slot, artMap, bet }: { slot: SlotDef; artMap?: ArtMap
         { label: '8', mf: 1 / 2 }, { label: '9+', mf: 1 },
       ];
     }
-    return [
-      { label: '2×', mf: 1 / 30, premOnly: true }, { label: '3×', mf: 1 / 10 },
-      { label: '4×', mf: 1 / 3 }, { label: '5×', mf: 1 },
-    ];
+    // Paylines/ways ladder tracks the reel count (engine mf: full run 1,
+    // one short 1/3, two short 1/10, else 1/30). 2-of-a-kind is premium
+    // only; on 3 reels that is one short of a full run, hence 1/3.
+    const nr = slot.reels;
+    const mfFor = (count: number) =>
+      count === nr ? 1 : count === nr - 1 ? 1 / 3 : count === nr - 2 ? 1 / 10 : 1 / 30;
+    return Array.from({ length: nr - 1 }, (_, k) => {
+      const count = k + 2;
+      return { label: `${count}×`, mf: mfFor(count), ...(count === 2 ? { premOnly: true } : {}) };
+    });
   }, [slot]);
 
   const note = slot.gameType === 'ways'
@@ -122,7 +128,7 @@ export function Paytable({ slot, artMap, bet }: { slot: SlotDef; artMap?: ArtMap
       ? `No paylines: ${scatterMinHit(slot)}+ matching anywhere pay. Wilds count toward every symbol. Values at your ${fmt(bet)} bet.`
       : slot.gameType === 'cluster'
         ? `Clusters of 5+ touching symbols pay. Wilds join any cluster. Values at your ${fmt(bet)} bet.`
-        : `9 paylines, left to right. Values at your ${fmt(bet)} bet.`;
+        : `${paylinesFor(slot.reels).length} paylines, left to right. Values at your ${fmt(bet)} bet.`;
 
   return (
     <div className="paytable">

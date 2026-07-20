@@ -1,6 +1,6 @@
-// Session catalogue: the ten presets (always present) plus this
-// session's builds (in memory only — the deliberate zero-moving-parts
-// demo choice; Airtable persistence arrives with the soft-launch plan).
+// Catalogue assembly: preset seeds, this session's builds (in memory),
+// and the shared community/house rows fetched from /api/catalog when
+// Airtable is configured.
 
 import { GameType, SlotDef } from '../engine/types';
 import { TYPE_PROFILES } from '../engine';

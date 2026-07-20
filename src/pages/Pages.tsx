@@ -366,9 +366,11 @@ export function Machine({ slot, note, canPublish, onPublished, go }: { slot: Slo
         <Reels slot={slot} state={state} artMap={artMap} />
         <div className="controls">
           <div className="bet">
-            <button onClick={() => setBetIdx(Math.max(0, betIdx - 1))} disabled={state.phase !== 'idle'}>−</button>
+            {/* Bet locks while free spins remain: free spins pay at the
+                stake that triggered them, not a raised one. */}
+            <button onClick={() => setBetIdx(Math.max(0, betIdx - 1))} disabled={state.phase !== 'idle' || state.freeSpins > 0}>−</button>
             <span className="bet-val">{fmt(bets[betIdx])}</span>
-            <button onClick={() => setBetIdx(Math.min(bets.length - 1, betIdx + 1))} disabled={state.phase !== 'idle'}>+</button>
+            <button onClick={() => setBetIdx(Math.min(bets.length - 1, betIdx + 1))} disabled={state.phase !== 'idle' || state.freeSpins > 0}>+</button>
           </div>
           <button
             className={`btn-spin${state.auto ? ' stopping' : ''}`}

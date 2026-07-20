@@ -99,6 +99,14 @@ export function validateAndClamp(raw: unknown): GeneratedSpec {
   });
   symbols.sort((a, b) => a.multiplier - b.multiplier);
 
+  // Emoji uniqueness is a hard shape rule: the engine matches cells on
+  // emoji alone, so a duplicate (or a wild/scatter colliding with a
+  // symbol) would double-evaluate wins and cross-wire art mapping.
+  const wildEmoji = String(d.wildSymbol.emoji).slice(0, 8);
+  const bonusEmoji = String(d.bonusSymbol.emoji).slice(0, 8);
+  const allEmoji = [...symbols.map((s) => s.emoji), wildEmoji, bonusEmoji];
+  if (new Set(allEmoji).size !== allEmoji.length) throw new Error('duplicate emoji');
+
   const color = /^#[0-9a-fA-F]{6}$/.test(String(d.color)) ? String(d.color) : '#FF3DA5';
   const themeStyle = THEME_STYLES.includes(String(d.themeStyle)) ? String(d.themeStyle) : 'default';
 
@@ -108,8 +116,8 @@ export function validateAndClamp(raw: unknown): GeneratedSpec {
     color,
     themeStyle,
     symbols,
-    wildSymbol: { emoji: String(d.wildSymbol.emoji).slice(0, 8), name: String(d.wildSymbol.name ?? 'Wild').slice(0, 24) },
-    bonusSymbol: { emoji: String(d.bonusSymbol.emoji).slice(0, 8), name: String(d.bonusSymbol.name ?? 'Scatter').slice(0, 24) },
+    wildSymbol: { emoji: wildEmoji, name: String(d.wildSymbol.name ?? 'Wild').slice(0, 24) },
+    bonusSymbol: { emoji: bonusEmoji, name: String(d.bonusSymbol.name ?? 'Scatter').slice(0, 24) },
   };
 }
 

@@ -15,7 +15,7 @@
 
 import { getStore } from '@netlify/blobs';
 
-interface AssetState { key?: string; status: 'pending' | 'stored' | 'ok' | 'fallback'; attempts: number; reason?: string }
+interface AssetState { key?: string; status: 'pending' | 'stored' | 'ok' | 'fallback'; attempts: number; criticAttempts?: number; reason?: string }
 interface ArtState { assets: Record<string, AssetState>; done: boolean; gen?: string }
 
 // Player-selectable art styles. Each block is the consistent language the
@@ -31,19 +31,45 @@ const STYLE_BLOCKS: Record<string, string> = {
   anime: 'Anime illustration linework, cel shading, dynamic composition, cyber neon glow accents.',
   luxe: 'Art deco luxury, polished black and gold, engraved metallic detail, premium minimal composition.',
 };
+// Translate a hex colour to a human colour NAME. Critical: raw hex like
+// "#FF3DA5" placed in an image prompt gets painted as literal text by the
+// model. Prompts must only ever contain colour words.
+function colourName(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim());
+  if (!m) return 'neon magenta';
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 510;
+  if (max - min < 25) return l > 0.65 ? 'silver white' : l < 0.25 ? 'charcoal black' : 'slate grey';
+  let h = 0;
+  if (max === r) h = ((g - b) / (max - min)) % 6;
+  else if (max === g) h = (b - r) / (max - min) + 2;
+  else h = (r - g) / (max - min) + 4;
+  h = (h * 60 + 360) % 360;
+  const names: [number, string][] = [
+    [15, 'red'], [40, 'orange'], [65, 'amber gold'], [150, 'emerald green'],
+    [195, 'teal cyan'], [255, 'royal blue'], [290, 'violet purple'], [330, 'magenta pink'], [361, 'red'],
+  ];
+  const base = names.find(([lim]) => h < lim)?.[1] ?? 'magenta pink';
+  return l > 0.68 ? `bright ${base}` : l < 0.3 ? `deep ${base}` : base;
+}
+
 const styleBlock = (spec: { artStyle?: string }) => STYLE_BLOCKS[spec.artStyle ?? 'synthwave'] ?? STYLE_BLOCKS.synthwave;
 
 // HOUSE_STYLE folded into STYLE_BLOCKS.synthwave (the default style).
 
-const MARQUE_STYLE =
-  'A glowing neon sign on a dark wall, retro synthwave casino style: hot pink and violet neon tubes, ' +
-  'subtle amber accents, soft glow bloom, dark deep-purple background, wide landscape composition, ' +
-  'the sign displays ONLY the given words in stylish neon lettering — no other text, no scene, no people.';
+// Style-neutral bases: the aesthetic comes ONLY from the machine's style
+// block, so marques and backdrops match the player's selected style
+// instead of always reading synthwave.
+const MARQUE_BASE =
+  'A game-title sign artwork, wide landscape composition. The sign displays ONLY the given words ' +
+  'in stylish decorative lettering that matches the art treatment — no other text, no scene beyond ' +
+  'the sign, no people.';
 
-const BG_STYLE =
-  'Wide atmospheric landscape backdrop, retro-future synthwave: deep purple night sky, glowing horizon, ' +
-  'subtle grid ground, neon accents in pink violet and cyan, dreamy depth, cinematic, dark enough for ' +
-  'bright UI to sit on top. Purely pictorial with absolutely no text, no letters, no logos, no borders.';
+const BG_BASE =
+  'Wide atmospheric landscape backdrop for a game screen, cinematic depth, composed so bright game ' +
+  'UI stays legible on top. Purely pictorial with absolutely no text, no letters, no logos, no borders.';
 
 function slotLabels(spec: { symbols: { name: string; archetype?: string }[]; wildSymbol: { name: string }; bonusSymbol: { name: string }; themeStyle?: string }) {
   const ids = spec.symbols.map((_, i) => `s${i}`).concat(['wild', 'scatter', 'marque', 'bg']);
@@ -218,15 +244,21 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
-const CRITIC_MARQUE_SYS = `You review a neon SIGN image for a game title. FAIL (pass=false) if ANY of these: no legible neon lettering at all; depicts a scene, people, or objects beyond the sign itself; too bright/light background (must be dark); disturbing or adult content. Minor stylised letter quirks are acceptable. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+// Critic criteria are style-aware: the expected style passed in is the
+// SAME block the generation prompt used, so the gate can never fail art
+// for being exactly what was asked for.
+const CRITIC_MARQUE_SYS = (style: string) => `You review a game-title SIGN image. FAIL (pass=false) if ANY of these: no legible lettering at all; the sign shows words other than, or in addition to, the given title — including any codes, hashtags or hex values; depicts a scene, people, or objects beyond the sign itself; clashes badly with the intended art treatment: "${style}"; disturbing or adult content. Minor stylised letter quirks are acceptable. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
-const CRITIC_BG_SYS = `You review backdrop art for a game screen. FAIL (pass=false) if ANY of these: contains ANY letters, words, numbers or typography anywhere; too bright or busy for UI to sit on top (must be a dark scene); off-style (must be a synthwave neon landscape, deep purples); disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_BG_SYS = (style: string) => `You review backdrop art for a game screen. FAIL (pass=false) if ANY of these: contains ANY letters, words, numbers or typography anywhere; so bright or busy that game UI would be illegible on top; clearly off-style for the intended art treatment: "${style}"; disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
-const CRITIC_SYS = `You review slot machine symbol art. FAIL (pass=false) if ANY of these: the image does NOT clearly depict the stated subject; contains ANY letters, words, numbers or typography anywhere in the image; depicts an entire slot machine, casino sign, poster or storefront rather than a single object emblem; multiple competing subjects or a full scene; unreadable as an icon at 100px; off-style (must be neon synthwave, dark purple ground); disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_SYS = (style: string) => `You review slot machine symbol art. FAIL (pass=false) if ANY of these: the image contains ANY text, letters, numbers, hashtags or hex codes anywhere (symbols must be text-free); the image does NOT clearly depict the stated subject; depicts an entire slot machine, casino sign, poster or storefront rather than a single subject emblem; multiple competing subjects or a full scene; unreadable as an icon at 100px; clearly off-style for the intended art treatment: "${style}"; disturbing or adult content. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
-async function critic(pngBytes: ArrayBuffer, sid: string, subject = ''): Promise<{ pass: boolean; reasons: string[] }> {
+// Critic failure paths fail CLOSED: an unreviewed image never ships.
+// Transient errors are retried (criticAttempts in the caller); a second
+// failure falls the asset back to emoji.
+async function critic(pngBytes: ArrayBuffer, sid: string, subject = '', style = ''): Promise<{ pass: boolean; reasons: string[]; error?: boolean }> {
   const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return { pass: true, reasons: ['critic_unavailable'] }; // don't block art on missing critic
+  if (!key) return { pass: false, reasons: ['critic_unconfigured'], error: true };
   const b64 = Buffer.from(pngBytes).toString('base64');
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -234,23 +266,25 @@ async function critic(pngBytes: ArrayBuffer, sid: string, subject = ''): Promise
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 300,
-      system: sid === 'bg' ? CRITIC_BG_SYS : sid === 'marque' ? CRITIC_MARQUE_SYS : CRITIC_SYS,
+      system: sid === 'bg' ? CRITIC_BG_SYS(style) : sid === 'marque' ? CRITIC_MARQUE_SYS(style) : CRITIC_SYS(style),
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: 'image/png', data: b64 } },
-          { type: 'text', text: subject ? `Review this image. It is supposed to depict: ${subject}.` : 'Review this image.' },
+          { type: 'text', text: sid === 'marque'
+            ? `Review this sign. It must display exactly these words and nothing else: "${subject}".`
+            : subject ? `Review this image. It is supposed to depict: ${subject}.` : 'Review this image.' },
         ],
       }],
     }),
   });
-  if (!r.ok) return { pass: true, reasons: [`critic_error_${r.status}`] };
+  if (!r.ok) return { pass: false, reasons: [`critic_error_${r.status}`], error: true };
   try {
     const d = await r.json();
     const t = JSON.parse(String(d.content?.[0]?.text ?? '').replace(/```json|```/g, '').trim());
     return { pass: Boolean(t.pass), reasons: Array.isArray(t.reasons) ? t.reasons.slice(0, 3).map(String) : [] };
   } catch {
-    return { pass: true, reasons: ['critic_parse_error'] };
+    return { pass: false, reasons: ['critic_parse_error'], error: true };
   }
 }
 
@@ -281,7 +315,10 @@ export default async (req: Request) => {
   try {
     const rec = await airtableGet(base, token, id);
     const f = rec.fields ?? {};
-    if (f.status !== 'live' && f.status !== 'pending') {
+    // 'unlisted' = approved, creator hasn't published yet — forging is
+    // allowed (this is the primary build flow). Only 'rejected' and
+    // unknown statuses stay blocked.
+    if (!['live', 'pending', 'unlisted'].includes(String(f.status))) {
       return Response.json({ error: 'not_eligible' }, { status: 403 });
     }
     const spec = JSON.parse(f.spec_json ?? '{}');
@@ -306,8 +343,21 @@ export default async (req: Request) => {
     if (toJudge) {
       const a = state.assets[toJudge];
       const bytes = await store.get(a.key!, { type: 'arrayBuffer' });
-      const verdict = bytes ? await critic(bytes, toJudge, names[toJudge] ?? '') : { pass: false, reasons: ['blob_missing'] };
-      if (verdict.pass) {
+      const sDesc = styleBlock(spec as { artStyle?: string });
+      const subject = toJudge === 'marque' ? String(spec.name ?? '') : (names[toJudge] ?? '');
+      const verdict = bytes
+        ? await critic(bytes, toJudge, subject, sDesc)
+        : { pass: false, reasons: ['blob_missing'] as string[], error: false };
+      if (verdict.error) {
+        // Critic outage: leave the asset 'stored' and re-judge on a later
+        // step; a second outage fails CLOSED to emoji — an unreviewed
+        // image never ships.
+        a.criticAttempts = (a.criticAttempts ?? 0) + 1;
+        if (a.criticAttempts >= 2) {
+          a.status = 'fallback';
+          a.reason = (verdict.reasons ?? []).join('; ').slice(0, 160) || 'critic_unavailable';
+        }
+      } else if (verdict.pass) {
         a.status = 'ok';
         const reg = toJudge === 'marque' ? null : assetTag(toJudge, names[toJudge] ?? '', String(spec.themeStyle ?? 'default'), archs[toJudge], id);
         if (reg)
@@ -367,10 +417,10 @@ export default async (req: Request) => {
     a.attempts += 1;
     const sBlock = styleBlock(spec as { artStyle?: string });
     const prompt = next === 'bg'
-      ? `${BG_STYLE} Art treatment: ${sBlock} Mood: ${mood}.`
+      ? `${BG_BASE} Art treatment: ${sBlock} Mood: ${mood}. Do not render any text, letters, numbers or codes.`
       : next === 'marque'
-        ? `${MARQUE_STYLE} Art treatment: ${sBlock} The sign says: "${String(spec.name ?? '').slice(0, 30)}".`
-        : `${sBlock} The object: ${names[next]}. Mood: ${mood}. Accent colour ${String(spec.color ?? '#FF3DA5')}, ${norm(String(spec.themeStyle ?? 'default'))} atmosphere.`;
+        ? `${MARQUE_BASE} Art treatment: ${sBlock} The sign displays ONLY these exact words and nothing else: "${String(spec.name ?? '').replace(/[^a-zA-Z0-9 '!&-]/g, '').slice(0, 30)}". Do not add any codes, hashtags, hex values or extra text.`
+        : `${sBlock} The object: ${names[next]}. Mood: ${mood}. Accent colour: ${colourName(String(spec.color ?? ''))}. ${norm(String(spec.themeStyle ?? 'default'))} atmosphere. Do not render any text, letters, numbers or codes in the image.`;
     let bytes: ArrayBuffer;
     try {
       bytes = await generateImage(
@@ -379,10 +429,9 @@ export default async (req: Request) => {
         next === 'bg' || next === 'marque' ? 'landscape_16_9' : 'square_hd',
       );
     } catch (e) {
-      // Provider failure (key, credits, model, network). Burn an attempt,
-      // record why, and keep the forge moving: after two failures the
-      // asset falls back to emoji instead of stalling the machine.
-      a.attempts += 1;
+      // Provider failure (key, credits, model, network). The attempt was
+      // already counted above; a transient failure gets ONE retry, and a
+      // second failure falls the asset back to emoji instead of stalling.
       a.reason = String(e).slice(0, 160);
       if (a.attempts >= 2) a.status = 'fallback';
       await airtablePatch(base, token, id, { art_json: JSON.stringify(state), art_status: 'partial' }).catch(() => undefined);

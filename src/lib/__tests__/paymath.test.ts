@@ -101,3 +101,33 @@ describe('max-win cap', () => {
     expect(out.totalWin).toBe(500 * 5000);
   });
 });
+
+describe('3-reel parity', () => {
+  // The paytable ladder must track the reel count: on 3 reels the engine
+  // pays a full 3-run at mf 1 and a premium 2-count at mf 1/3 — NOT the
+  // 5-reel 1/10 and 1/30 the old fixed columns displayed.
+  const slot3: SlotDef = { ...slot, reels: 3 };
+  const mk3 = (rows: string[]): Grid => {
+    const g: Grid = [];
+    for (let reel = 0; reel < 3; reel++) {
+      const col: Cell[] = [];
+      for (let row = 0; row < 3; row++) col.push({ sym: find(rows[row][reel]) });
+      g.push(col);
+    }
+    return g;
+  };
+
+  it('full 3-run pays mf 1 — what a 3-reel table must display', () => {
+    const r = evaluateLines(slot3, mk3(['ABC', 'HHH', 'CDE']), 2500);
+    const w = r.lineWins.find((x) => x.symbol.emoji === 'H' && x.count === 3)!;
+    expect(w.prize).toBe(displayPrizeGC(2500, 300, 1));
+    expect(w.prize).toBe(450000);
+  });
+
+  it('premium 2-count on 3 reels pays mf 1/3, not the 5-reel 1/30', () => {
+    const r = evaluateLines(slot3, mk3(['ABC', 'GGA', 'CDE']), 2500);
+    const w = r.lineWins.find((x) => x.symbol.emoji === 'G' && x.count === 2)!;
+    expect(w.prize).toBe(displayPrizeGC(2500, 120, 1 / 3));
+    expect(w.prize).toBe(60000);
+  });
+});

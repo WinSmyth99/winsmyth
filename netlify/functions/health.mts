@@ -76,6 +76,7 @@ export default async () => {
     art_status: await probeField('machines', 'art_status'),
     house: await probeField('machines', 'house'),
     plays: await probeField('machines', 'plays'),
+    created_at: await probeField('machines', 'created_at'), // catalog sorts on it
   };
   out.assets_fields = {
     asset_key: await probeField('assets', 'asset_key'),
@@ -87,6 +88,8 @@ export default async () => {
     uses: await probeField('assets', 'uses'),
     palette: await probeField('assets', 'palette'),
     art_style: await probeField('assets', 'art_style'),
+    status: await probeField('assets', 'status'), // registry lookups filter on it
+    machine_id: await probeField('assets', 'machine_id'),
   };
 
   // ── Provider probes ──
