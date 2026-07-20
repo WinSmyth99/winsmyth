@@ -258,10 +258,24 @@ const CRITIC_SYS = (style: string) => `You review slot machine symbol art. FAIL 
 // Critic failure paths fail CLOSED: an unreviewed image never ships.
 // Transient errors are retried (criticAttempts in the caller); a second
 // failure falls the asset back to emoji.
+// Detect the true image media type from magic bytes. FAL/recraft can
+// return PNG, JPEG or WebP; hardcoding image/png makes the vision API
+// reject a mislabelled JPEG with 400 "Could not process image", which
+// silently disabled the critic. Read the bytes, don't trust an extension.
+function sniffMediaType(bytes: ArrayBuffer): 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif' {
+  const b = new Uint8Array(bytes.slice(0, 12));
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'image/gif';
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+  return 'image/png'; // default; if genuinely unknown the API will say so
+}
+
 async function critic(pngBytes: ArrayBuffer, sid: string, subject = '', style = ''): Promise<{ pass: boolean; reasons: string[]; error?: boolean }> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return { pass: false, reasons: ['critic_unconfigured'], error: true };
   const b64 = Buffer.from(pngBytes).toString('base64');
+  const mediaType = sniffMediaType(pngBytes);
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
@@ -272,7 +286,7 @@ async function critic(pngBytes: ArrayBuffer, sid: string, subject = '', style = 
       messages: [{
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: b64 } },
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
           { type: 'text', text: sid === 'marque'
             ? `Review this sign. It must display exactly these words and nothing else: "${subject}".`
             : subject ? `Review this image. It is supposed to depict: ${subject}.` : 'Review this image.' },

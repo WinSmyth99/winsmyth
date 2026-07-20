@@ -113,7 +113,10 @@ export default async () => {
     // model the art critic uses, so /api/health surfaces a broken vision
     // call directly instead of leaving it to fail silently in the forge.
     try {
-      const onePxPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      // Valid opaque 2x2 RGB PNG (no alpha). A 1x1 *transparent* PNG can
+      // itself trigger a 400 on the vision API, giving a false red — this
+      // opaque image tests the real path honestly.
+      const testPng = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGOoCNgCRAwQCgAorgXx9KNB/AAAAABJRU5ErkJggg==';
       const cv = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -127,7 +130,7 @@ export default async () => {
           messages: [{
             role: 'user',
             content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: onePxPng } },
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: testPng } },
               { type: 'text', text: 'Reply OK.' },
             ],
           }],
