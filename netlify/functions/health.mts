@@ -108,6 +108,33 @@ export default async () => {
       });
       out.anthropic_api = a.ok ? 'ok' : { status: a.status, body: (await a.text()).slice(0, 300) };
     } catch (e) { out.anthropic_api = { error: String(e).slice(0, 200) }; }
+    // Critic VISION self-test: the text ping above does not prove the
+    // image path. This sends a real (tiny) PNG image block on the exact
+    // model the art critic uses, so /api/health surfaces a broken vision
+    // call directly instead of leaving it to fail silently in the forge.
+    try {
+      const onePxPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const cv = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 8,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: onePxPng } },
+              { type: 'text', text: 'Reply OK.' },
+            ],
+          }],
+        }),
+      });
+      out.critic_vision = cv.ok ? 'ok' : { status: cv.status, body: (await cv.text()).slice(0, 300) };
+    } catch (e) { out.critic_vision = { error: String(e).slice(0, 200) }; }
   }
   try {
     const { getStore } = await import('@netlify/blobs');

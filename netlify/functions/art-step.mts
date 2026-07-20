@@ -349,16 +349,24 @@ export default async (req: Request) => {
         ? await critic(bytes, toJudge, subject, sDesc)
         : { pass: false, reasons: ['blob_missing'] as string[], error: false };
       if (verdict.error) {
-        // Critic outage: leave the asset 'stored' and re-judge on a later
-        // step; a second outage fails CLOSED to emoji — an unreviewed
-        // image never ships.
+        // CRITIC OUTAGE (the call itself failed: HTTP error, parse error,
+        // unconfigured — NOT a content reject). Retry once; if the critic
+        // is still unreachable, SHIP the image with a flag rather than
+        // blanking the machine. This is deliberately different from a
+        // reject below: an unreachable reviewer must not take the whole
+        // machine down, but an image the reviewer actively REFUSED still
+        // falls back. The flag lets us find shipped-unreviewed assets and
+        // is recorded in the machine row for audit.
         a.criticAttempts = (a.criticAttempts ?? 0) + 1;
         if (a.criticAttempts >= 2) {
-          a.status = 'fallback';
-          a.reason = (verdict.reasons ?? []).join('; ').slice(0, 160) || 'critic_unavailable';
+          a.status = 'ok';
+          a.reason = `shipped_unreviewed:${(verdict.reasons ?? []).join(',').slice(0, 80) || 'critic_unavailable'}`;
+          // NOT registered for reuse — an unreviewed asset never enters the
+          // shared registry; it serves only on this one machine.
         }
       } else if (verdict.pass) {
         a.status = 'ok';
+        a.reason = undefined;
         const reg = toJudge === 'marque' ? null : assetTag(toJudge, names[toJudge] ?? '', String(spec.themeStyle ?? 'default'), archs[toJudge], id);
         if (reg)
           await registryRegister(base, token, {
@@ -376,11 +384,20 @@ export default async (req: Request) => {
       }
       const allSettled = ids.every((sid) => ['ok', 'fallback'].includes(state.assets[sid].status));
       state.done = allSettled;
+      // Diagnostic: carry the most recent asset reason forward so it is
+      // visible even if art_json is later wiped. Failures win over
+      // shipped-unreviewed flags for surfacing.
+      const lastReason = Object.values(state.assets).map((x) => x.reason).filter(Boolean).slice(-1)[0];
       await airtablePatch(base, token, id, {
         art_json: JSON.stringify(state),
         art_status: allSettled ? (Object.keys(publicMap(state)).length ? 'ready' : 'fallback') : 'partial',
       });
-      return Response.json({ phase: state.done ? 'done' : 'critiqued', judged: toJudge, pass: state.assets[toJudge].status === 'ok', ...counts(state, ids.length), artMap: publicMap(state) });
+      // Best-effort diagnostic field: optional in the base. Never allowed
+      // to throw — a missing 'art_note' field must not abort the pipeline.
+      if (lastReason) {
+        await airtablePatch(base, token, id, { art_note: String(lastReason).slice(0, 200) }).catch(() => undefined);
+      }
+      return Response.json({ phase: state.done ? 'done' : 'critiqued', judged: toJudge, pass: state.assets[toJudge].status === 'ok', reason: a.reason ?? null, ...counts(state, ids.length), artMap: publicMap(state) });
     }
 
     // Phase A: generate the next pending asset
