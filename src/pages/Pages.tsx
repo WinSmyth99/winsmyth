@@ -9,6 +9,7 @@ import { ART_STYLES } from '../lib/artStyles';
 import { encodeSlot } from '../lib/share';
 import { consumeForgeIntent, setForgeIntent } from '../lib/forge';
 import { useGame } from '../hooks/useGame';
+import LobbyScene from '../components/LobbyScene';
 import { ArtMap, fmt, Paytable, Reels, WinOverlay } from '../components/Game';
 import { sound } from '../sound/engine';
 
@@ -83,13 +84,12 @@ export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: str
   const session = entries.filter((e) => e.source === 'session' && match(e));
   const house = entries.filter((e) => e.source === 'house' && match(e));
   const community = entries.filter((e) => e.source === 'community' && match(e));
-  const presets = entries.filter((e) => e.source === 'preset' && match(e));
+  const nothingToShow = session.length === 0 && house.length === 0 && community.length === 0;
   return (
     <div className="lobby">
-      {/* Permanent premium backdrop: drop a generated scene into
-          public/lobby-bg.jpg and it becomes the lobby's cover. Absent
-          file → the layer paints only its gradient over the ambient. */}
-      <div className="page-bg lobby-bg" aria-hidden="true" />
+      {/* Permanent premium synthwave backdrop (Design artifact, self-contained). */}
+      <LobbyScene />
+      <div className="lobby-wordmark"><span>WINSMYTH</span></div>
       <section className="hero">
         <h2>Your Machine Awaits</h2>
         <p>Describe any theme and watch your bespoke machine come to life in seconds. No purchase ever required — just your imagination.</p>
@@ -129,12 +129,11 @@ export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: str
           </div>
         </section>
       )}
-      <section>
-        <h3 className="row-title">House catalogue</h3>
-        <div className="mgrid">
-          {presets.map((e) => <MachineCard key={e.id} entry={e} onPlay={() => go(`#/m/${encodeSlot(e.slot)}`)} />)}
-        </div>
-      </section>
+      {nothingToShow && (
+        <section className="lobby-empty">
+          <p>No machines yet. Press <strong>Build your own</strong> to create the first one.</p>
+        </section>
+      )}
     </div>
   );
 }
