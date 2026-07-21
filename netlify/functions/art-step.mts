@@ -66,10 +66,11 @@ const styleBlock = (spec: { artStyle?: string }) => STYLE_BLOCKS[spec.artStyle ?
 // instead of always reading synthwave.
 const MARQUE_BASE =
   'A video-game TITLE LOGO. The given words rendered as bold decorative themed lettering, centred, ' +
-  'filling the frame as a clean wordmark. Flat graphic title-card treatment on a plain simple dark ' +
-  'background. This is NOT a photograph and NOT a physical object: no real sign, board, plaque, ' +
-  'easel, poster or wall, no room, no environment, no scene, no people, no props around the text. ' +
-  'Only the stylised title lettering itself.';
+  'filling the frame as a clean wordmark. Flat graphic title-card treatment on a DEEP DARK background ' +
+  '— near-black or a deep jewel tone, never white, never pale, never a daylight scene; the lettering ' +
+  'glows against the darkness. This is NOT a photograph and NOT a physical object: no real sign, ' +
+  'board, plaque, easel, poster or wall, no room, no environment, no scene, no people, no props ' +
+  'around the text. Only the stylised title lettering itself.';
 
 const BG_BASE =
   'Wide atmospheric landscape backdrop for a game screen, cinematic depth, composed so bright game ' +
@@ -291,7 +292,7 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 
 // Showcase-mode critics ignore the style argument by design (kept in the
 // signature so restoring full quality gating is a prompt-only revert).
-const CRITIC_MARQUE_SYS = (_style: string) => `You review a game TITLE LOGO image. FAIL (pass=false) ONLY if: there is no legible lettering at all; or the lettering is garbled/nonsense; or it shows extra codes, hashtags or hex values in addition to the title; or it contains disturbing or adult content. Ignore all other issues — exact wording, style, background and whether it looks like a photo do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_MARQUE_SYS = (_style: string) => `You review a game TITLE LOGO image. FAIL (pass=false) ONLY if: there is no legible lettering at all; or the lettering is garbled/nonsense; or it shows extra codes, hashtags or hex values in addition to the title; or the background is predominantly white, pale or a bright daylight scene (it must be dark so it sits on a dark game UI); or it contains disturbing or adult content. Ignore all other issues — exact wording, style and whether it looks like a photo do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
 const CRITIC_BG_SYS = (_style: string) => `You review backdrop art for a game screen. FAIL (pass=false) ONLY if: it contains ANY readable letters, words, numbers or typography anywhere; or it contains disturbing or adult content. Ignore all other issues — style, brightness and composition do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
@@ -302,7 +303,7 @@ const CRITIC_BG_SYS = (_style: string) => `You review backdrop art for a game sc
 // (almost nothing falls back) while never shipping a symbol with words or
 // codes written across it. To restore full quality gating, revert the
 // three CRITIC_* prompts to their pre-v33 form.
-const CRITIC_SYS = (_style: string) => `You review slot machine symbol art. FAIL (pass=false) ONLY if: the image contains ANY readable text, letters, words, numbers, hashtags or hex codes anywhere; or it contains disturbing or adult content. Ignore all other issues — style, composition, background, duplicates and subject accuracy do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_SYS = (_style: string) => `You review slot machine symbol art. FAIL (pass=false) ONLY if: the image contains ANY readable text, letters, words, numbers, hashtags or hex codes anywhere; or the image clearly does NOT depict the stated subject at all (an empty frame for a scroll, a blank tile, or an entirely different object — minor artistic liberties are fine, fail only obvious mismatches); or it contains disturbing or adult content. Ignore all other issues — style, composition, background and duplicates do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
 // Critic call. Outage policy lives in the CALLER (Phase B): a failed
 // critic call (error: true) is retried once, then the image ships with a
@@ -560,7 +561,9 @@ export default async (req: Request) => {
     // (it drives narrative dioramas); it belongs only on the marque.
     const ICON = 'Single centred subject, ONE object only, no scene, no secondary objects, no background props. ' +
       'Plain simple solid dark background, evenly lit, generous even margin around the subject. ' +
-      'Composed as a clean game icon that reads clearly at small size.';
+      'The subject fills most of the frame with a bold, chunky, instantly readable silhouette — never a ' +
+      'thin sliver or wispy shape; long thin objects (bows, swords, staffs, arrows) are shown large at a ' +
+      'dynamic diagonal. Composed as a clean game icon that reads clearly at small size.';
     // Role treatment makes the hierarchy visible with zero text. Note the
     // wording deliberately avoids feeding renderable role words into the
     // prompt: earlier art shipped with 'SCATTER' and 'WILD' painted on it

@@ -15,13 +15,31 @@ import { sound } from '../sound/engine';
 const CHIPS = ['Pirate', 'Japanese', 'Deep space', 'Italian', 'Dragon', 'Luxury', 'Wizard', 'Safari', 'Rock', 'Fiesta'];
 
 export function MachineCard({ entry, onPlay }: { entry: CatalogEntry; onPlay: () => void }) {
-  const { slot } = entry;
+  const { slot, art } = entry;
   const preview = [...slot.symbols].reverse().slice(0, 3);
+  const hasThumbs = Boolean(art?.symbols?.length);
   return (
-    <button className="mcard" style={{ '--mc': slot.color } as React.CSSProperties} onClick={onPlay}>
+    <button
+      className={art?.bg || hasThumbs ? 'mcard mcard-art' : 'mcard'}
+      style={{
+        '--mc': slot.color,
+        ...(art?.bg ? {
+          backgroundImage: `linear-gradient(180deg, rgba(9,4,22,.66) 0%, rgba(9,4,22,.9) 78%), url(/api/art-get?key=${encodeURIComponent(art.bg)})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        } : {}),
+      } as React.CSSProperties}
+      onClick={onPlay}
+    >
       <div className="mcard-name">{slot.name}</div>
       <div className="mcard-tag">{slot.tagline}</div>
-      <div className="mcard-syms">{preview.map((s) => <span key={s.emoji}>{s.emoji}</span>)}</div>
+      <div className="mcard-syms">
+        {hasThumbs
+          ? art!.symbols!.map((k) => (
+            <img key={k} className="mcard-thumb" src={`/api/art-get?key=${encodeURIComponent(k)}`} alt="" loading="lazy" />
+          ))
+          : preview.map((s) => <span key={s.emoji}>{s.emoji}</span>)}
+      </div>
       <div className="mcard-foot">
         <span className="type-tag">{TYPE_PROFILES[slot.gameType].label}</span>
         {entry.source === 'session' && <span className="type-tag mine">Your build</span>}

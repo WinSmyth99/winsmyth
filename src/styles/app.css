@@ -73,9 +73,12 @@ textarea:focus, select:focus { outline: none; border-color: var(--highlight); bo
 .empty p { color: var(--muted); max-width: 460px; margin: 0 auto; line-height: 1.6; }
 
 .machine {
-  background: rgba(20, 11, 40, 0.42);
-  -webkit-backdrop-filter: blur(18px) saturate(1.15);
-  backdrop-filter: blur(18px) saturate(1.15);
+  /* Clear glass (v37): no blur — the backdrop shows through crisply. A
+     light tint keeps reels/paytable text readable over busy scenes; the
+     saturate gives the pane a glassy pop. */
+  background: rgba(10, 5, 24, 0.32);
+  -webkit-backdrop-filter: saturate(1.2);
+  backdrop-filter: saturate(1.2);
   border: 2px solid; border-radius: 20px; padding: 22px; position: relative;
 }
 .marque { text-align: center; margin-bottom: 12px; }
@@ -273,6 +276,22 @@ textarea:focus, select:focus { outline: none; border-color: var(--highlight); bo
   border: 1.5px solid; border-radius: 16px; padding: 18px 16px 14px; cursor: pointer;
   text-align: left; color: var(--text); font-family: var(--font-body);
   transition: transform .15s, box-shadow .15s;
+  position: relative; overflow: hidden;
+}
+/* Premium sheen: a light sweep crosses the card on hover. */
+.mcard::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, transparent 32%, rgba(255,255,255,.07) 46%, transparent 60%);
+  transform: translateX(-130%); transition: transform .55s ease;
+}
+.mcard:hover::before { transform: translateX(130%); }
+/* Art cards: the machine's own backdrop is the cover; text needs a dark
+   anchor to stay legible over it. */
+.mcard-art .mcard-name, .mcard-art .mcard-tag { text-shadow: 0 1px 10px rgba(0,0,0,.85), 0 0 14px currentColor; }
+.mcard-thumb {
+  width: 46px; height: 46px; border-radius: 10px; object-fit: cover;
+  border: 1px solid color-mix(in srgb, var(--mc, var(--highlight)) 45%, transparent);
+  box-shadow: 0 2px 10px rgba(0,0,0,.45); background: #0c0620;
 }
 .mcard:hover { transform: translateY(-3px); box-shadow: 0 8px 30px rgba(255,61,165,.25); }
 .mcard-name { font-family: var(--font-display); font-weight: 400; font-size: 1.05rem; letter-spacing: .04em; text-shadow: 0 0 14px currentColor; }

@@ -20,8 +20,20 @@ export default async (req: Request) => {
     if (!res.ok) return Response.json({ machines: [] });
     const d = await res.json();
     const machines = (d.records ?? [])
-      .map((r: { id: string; fields: { spec_json?: string; game_type?: string; reels?: number; house?: unknown; plays?: number } }) => {
+      .map((r: { id: string; fields: { spec_json?: string; game_type?: string; reels?: number; house?: unknown; plays?: number; art_json?: string } }) => {
         try {
+          // Surface the machine's real art for lobby cards: backdrop plus
+          // the top three critic-passed symbols (s7 downward). Key strings
+          // only — the client fetches via /api/art-get.
+          let art: { bg?: string; symbols: string[] } | undefined;
+          try {
+            const st = JSON.parse(r.fields.art_json || '');
+            const ok = (sid: string) => st.assets?.[sid]?.status === 'ok' ? String(st.assets[sid].key ?? '') : '';
+            const symbols: string[] = [];
+            for (let i = 7; i >= 0 && symbols.length < 3; i--) { const k = ok(`s${i}`); if (k) symbols.push(k); }
+            const bg = ok('bg');
+            if (symbols.length || bg) art = { ...(bg ? { bg } : {}), symbols };
+          } catch { /* no art yet — cards fall back to emoji */ }
           return {
             id: r.id,
             spec: JSON.parse(r.fields.spec_json ?? ''),
@@ -29,6 +41,7 @@ export default async (req: Request) => {
             reels: r.fields.reels === 3 ? 3 : 5,
             house: r.fields.house === true || r.fields.house === 1,
             plays: Number(r.fields.plays ?? 0),
+            ...(art ? { art } : {}),
           };
         } catch { return null; }
       })

@@ -11,6 +11,8 @@ export interface CatalogEntry {
   slot: SlotDef;
   source: 'preset' | 'session' | 'community' | 'house';
   plays?: number;
+  /** Real generated art for lobby cards: backdrop + top symbol keys. */
+  art?: { bg?: string; symbols?: string[] };
 }
 
 export function presetEntries(): CatalogEntry[] {
@@ -36,14 +38,19 @@ export async function fetchCommunity(): Promise<CatalogEntry[]> {
   try {
     const res = await fetch('/api/catalog');
     if (!res.ok) return [];
-    const d = await res.json() as { machines: { id: string; spec: unknown; gameType: string; reels: number; house?: boolean; plays?: number }[] };
+    const d = await res.json() as { machines: { id: string; spec: unknown; gameType: string; reels: number; house?: boolean; plays?: number; art?: { bg?: string; symbols?: string[] } }[] };
+    const validKey = (k: unknown): k is string => typeof k === 'string' && /^art\/rec[A-Za-z0-9]{14,17}\/([a-z0-9]+\/)?[a-z0-9-]+\.png$/.test(k);
     return (d.machines ?? []).flatMap((m) => {
       try {
         const gt = (['paylines', 'ways', 'scatter', 'cluster'] as GameType[]).includes(m.gameType as GameType)
           ? m.gameType as GameType : 'paylines';
         const slot = toSlotDef(validateAndClamp(m.spec), m.reels === 3 ? 3 : 5, gt, TYPE_PROFILES[gt].vol);
         if (/^rec[A-Za-z0-9]{14,17}$/.test(m.id)) slot.artId = m.id;
-        return [{ id: m.id, source: (m.house ? 'house' : 'community') as 'house' | 'community', slot, plays: m.plays ?? 0 }];
+        const art = m.art ? {
+          ...(validKey(m.art.bg) ? { bg: m.art.bg } : {}),
+          symbols: (m.art.symbols ?? []).filter(validKey).slice(0, 3),
+        } : undefined;
+        return [{ id: m.id, source: (m.house ? 'house' : 'community') as 'house' | 'community', slot, plays: m.plays ?? 0, ...(art && (art.bg || art.symbols.length) ? { art } : {}) }];
       } catch { return []; }
     });
   } catch { return []; }
