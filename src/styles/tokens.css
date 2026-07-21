@@ -17,12 +17,45 @@
 html, body, #root { margin: 0; min-height: 100vh; }
 body {
   background: var(--bg);
+  /* Premium permanent backdrop (v40): deep indigo dome, magenta/cyan
+     aurora corners, horizon glow, and a scatter of crisp star specks.
+     Fixed attachment so the scene holds while content scrolls. The
+     machine page's art backdrop (.page-bg) paints above this. */
   background-image:
-    radial-gradient(ellipse at 15% 10%, rgba(157,92,255,.14), transparent 50%),
-    radial-gradient(ellipse at 85% 80%, rgba(255,61,165,.10), transparent 50%),
-    linear-gradient(180deg, transparent 72%, rgba(255,61,165,.10) 100%);
+    radial-gradient(1.6px 1.6px at 11% 18%, rgba(255,255,255,.55), transparent 60%),
+    radial-gradient(1.2px 1.2px at 27% 9%, rgba(255,255,255,.4), transparent 60%),
+    radial-gradient(1.8px 1.8px at 44% 24%, rgba(190,225,255,.5), transparent 60%),
+    radial-gradient(1.2px 1.2px at 63% 12%, rgba(255,255,255,.42), transparent 60%),
+    radial-gradient(1.6px 1.6px at 78% 21%, rgba(255,214,245,.5), transparent 60%),
+    radial-gradient(1.2px 1.2px at 91% 15%, rgba(255,255,255,.38), transparent 60%),
+    radial-gradient(1.4px 1.4px at 52% 6%, rgba(255,255,255,.45), transparent 60%),
+    radial-gradient(120% 85% at 50% -12%, #221050 0%, transparent 58%),
+    radial-gradient(70% 55% at 8% 106%, rgba(255,61,165,.14), transparent 60%),
+    radial-gradient(70% 55% at 92% 108%, rgba(0,229,255,.11), transparent 60%),
+    linear-gradient(180deg, transparent 68%, rgba(255,61,165,.12) 100%);
+  background-attachment: fixed;
   color: var(--text);
   font-family: var(--font-body);
+}
+
+/* Aurora drift — a slow, blurred colour field behind everything. Sits
+   below the floor grid (-1) and below the machine page's art backdrop
+   (same z, later in DOM). Disabled for reduced-motion users. */
+body::before {
+  content: ''; position: fixed; inset: -22%; z-index: -2; pointer-events: none;
+  background:
+    radial-gradient(42% 30% at 28% 24%, rgba(124, 77, 255, .17), transparent 70%),
+    radial-gradient(36% 26% at 74% 62%, rgba(255, 61, 165, .11), transparent 70%),
+    radial-gradient(30% 22% at 55% 38%, rgba(0, 229, 255, .09), transparent 70%);
+  filter: blur(26px);
+  animation: aurora-drift 46s ease-in-out infinite alternate;
+}
+@keyframes aurora-drift {
+  from { transform: translate3d(-2%, -1%, 0) scale(1); }
+  to { transform: translate3d(2.5%, 2%, 0) scale(1.07); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
 }
 
 /* Synthwave floor — the perspective grid at the page foot (signature #4).
