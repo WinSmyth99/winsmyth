@@ -73,6 +73,13 @@ const MARQUE_BASE =
   'board, plaque, easel, poster or wall, no room, no environment, no scene, no people, no props ' +
   'around the text. Only the stylised title lettering itself.';
 
+// Shared, forceful no-text directive. FLUX renders text when a scene
+// suggests it (signs, marquees, storefronts), and a soft trailing "no
+// text" loses to that pull. This leads hard and is prepended so early
+// tokens carry the weight.
+const NO_TEXT = 'IMPORTANT: absolutely no text, no letters, no words, no numbers, no signage, no labels, no watermarks, no logos and no writing of any kind anywhere in the image — a completely wordless illustration.';
+const NO_TEXT_BG = 'IMPORTANT: a completely wordless scene — no text, letters, words or numbers anywhere. Any signs, marquees, billboards, shopfronts or screens must be BLANK glowing shapes with no writing on them.';
+
 const BG_BASE =
   'Wide atmospheric landscape backdrop for a game screen, cinematic depth, composed so bright game ' +
   'UI stays legible on top. Purely pictorial with absolutely no text, no letters, no logos, no borders. ' +
@@ -258,7 +265,7 @@ async function airtablePatch(base: string, token: string, id: string, fields: Re
 const symbolModel = () => process.env.FAL_SYMBOL_MODEL || process.env.FAL_MODEL || 'fal-ai/flux/schnell';
 const marqueModel = () => process.env.FAL_MARQUE_MODEL || 'fal-ai/recraft-v3';
 
-async function generateImage(prompt: string, machineColor: string, imageSize = 'square_hd', model?: string): Promise<ArrayBuffer> {
+async function generateImage(prompt: string, machineColor: string, imageSize = 'square_hd', model?: string, suppressText = true): Promise<ArrayBuffer> {
   const falKey = process.env.FAL_KEY;
   if (!falKey) throw new Error('fal_unconfigured');
   const chosen = model || symbolModel();
@@ -271,6 +278,11 @@ async function generateImage(prompt: string, machineColor: string, imageSize = '
     body.style = 'digital_illustration';
     const rgb = hexToRgb(machineColor);
     if (rgb) body.colors = [rgb];
+  } else if (suppressText) {
+    // FLUX honours a negative prompt — the strongest lever for keeping
+    // stray text/signage out of symbols and backdrops. Text-bearing
+    // assets (marque/wild/scatter on Recraft) don't reach this branch.
+    body.negative_prompt = 'text, words, letters, numbers, writing, signage, labels, captions, watermark, logo, typography, subtitles, gibberish text, signature';
   }
   const r = await fetch(`https://fal.run/${chosen}`, {
     method: 'POST',
@@ -295,9 +307,9 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 
 // Showcase-mode critics ignore the style argument by design (kept in the
 // signature so restoring full quality gating is a prompt-only revert).
-const CRITIC_MARQUE_SYS = (_style: string) => `You review a game TITLE LOGO image. FAIL (pass=false) ONLY if: there is no legible lettering at all; or the lettering is garbled/nonsense; or it shows extra codes, hashtags or hex values in addition to the title; or the background is predominantly white, pale or a bright daylight scene (it must be dark so it sits on a dark game UI); or it contains disturbing or adult content. Ignore all other issues — exact wording, style and whether it looks like a photo do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_MARQUE_SYS = (_style: string) => `You review a game TITLE LOGO image. FAIL (pass=false) ONLY if: there is no legible lettering at all; or the lettering is garbled/nonsense; or it shows extra codes, hashtags or hex values in addition to the title; or the background is predominantly white, pale or a bright daylight scene (it must be dark so it sits on a dark game UI). Ignore everything else — exact wording, style and whether it looks like a photo do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
-const CRITIC_BG_SYS = (_style: string) => `You review backdrop art for a game screen. FAIL (pass=false) ONLY if: it contains PROMINENT, clearly readable words or numbers (small, distant or illegible sign-shapes and glyph-like glows are acceptable); or it contains disturbing or adult content. Ignore all other issues — style, brightness and composition do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_BG_SYS = (_style: string) => `You review backdrop art for a game screen. FAIL (pass=false) ONLY if it contains PROMINENT, clearly readable words or numbers (small, distant or illegible sign-shapes and glyph-like glows are acceptable). Ignore everything else — style, brightness and composition do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
 // SHOWCASE MODE (Option B): the critic no longer gates on aesthetics
 // (scene, style, duplicates, subject-match, framing). It keeps ONLY the
@@ -306,12 +318,17 @@ const CRITIC_BG_SYS = (_style: string) => `You review backdrop art for a game sc
 // (almost nothing falls back) while never shipping a symbol with words or
 // codes written across it. To restore full quality gating, revert the
 // three CRITIC_* prompts to their pre-v33 form.
-const CRITIC_SYS = (_style: string) => `You review slot machine symbol art. FAIL (pass=false) ONLY if: the image contains readable text that is NOT simply the symbol's own stated subject name (random words, codes, hashtags, hex values or garbled lettering all fail; a clean, accurate caption of the stated subject is acceptable); or the image clearly does NOT depict the stated subject at all (an empty frame for a scroll, a blank tile, or an entirely different object — minor artistic liberties are fine, fail only obvious mismatches); or it contains disturbing or adult content. Ignore all other issues — style, composition, background and duplicates do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+// MINIMAL MODE (Option 1): the symbol critic no longer checks subject
+// accuracy or adult content (FAL filters the latter upstream). It keeps
+// ONLY the guard against broken lettering — a symbol with stray words or
+// garbled nonsense text is the one failure that reads as unmistakably
+// broken. Everything else ships. Near-zero fallbacks.
+const CRITIC_SYS = (_style: string) => `You review slot machine symbol art. FAIL (pass=false) ONLY if the image contains readable text that is NOT simply the symbol's own stated subject name — i.e. random words, codes, hashtags, hex values, or garbled/warped nonsense lettering. A clean accurate caption of the subject, or no text at all, is fine. Ignore everything else — subject accuracy, style, composition, background and duplicates do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
 // Wild/scatter carry their role word by design (v39). The critic verifies
 // the word is present and CORRECT — a garbled 'WILLD' is exactly the
 // failure this gate exists to catch.
-const CRITIC_SPECIAL_SYS = (word: string) => `You review a slot machine ${word} symbol. FAIL (pass=false) ONLY if: the word "${word}" is missing, misspelled or garbled; or the image contains readable text that is neither "${word}" nor words from the symbol's own stated name (codes, hashtags, hex values, garbled lettering or unrelated words all fail); or the image clearly does not depict the stated subject at all; or it contains disturbing or adult content. Ignore all other issues — style, composition and background do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_SPECIAL_SYS = (word: string) => `You review a slot machine ${word} symbol. FAIL (pass=false) ONLY if: the word "${word}" is missing, misspelled or garbled; or the image contains readable text that is neither "${word}" nor words from the symbol's own stated name (codes, hashtags, hex values, garbled lettering or unrelated words all fail). Ignore everything else — subject accuracy, style, composition and background do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
 // Critic call. Outage policy lives in the CALLER (Phase B): a failed
 // critic call (error: true) is retried once, then the image ships with a
@@ -580,11 +597,17 @@ export default async (req: Request) => {
       next === 'scatter' ? ' Give this one a distinct radiant burst treatment, a glowing halo or emanating rays. The word "SCATTER" is rendered boldly and legibly across the emblem in decorative lettering matching the art treatment — spelled exactly SCATTER, and no other text.'
       : next === 'wild' ? ' Present this one as a premium bordered medallion with an ornate frame. The word "WILD" is rendered boldly and legibly across the emblem in decorative lettering matching the art treatment — spelled exactly WILD, and no other text.'
       : '';
-    const prompt = next === 'bg'
-      ? `${BG_BASE} Art treatment: ${sBlock} Atmospheric ${accent}-lit ${norm(String(spec.themeStyle ?? 'default'))} scene with depth, sits behind a frosted glass panel so gentle richness is welcome. Do not render any text, letters, numbers or codes.`
+    const prompt = (next === 'bg'
+      ? `${NO_TEXT_BG} ${BG_BASE} Art treatment: ${sBlock} Atmospheric ${accent}-lit ${norm(String(spec.themeStyle ?? 'default'))} scene with depth, composed as a pure landscape/environment with no readable signage, sits behind a frosted glass panel so gentle richness is welcome.`
       : next === 'marque'
         ? `${MARQUE_BASE} Art treatment: ${sBlock} The title reads ONLY these exact words and nothing else: "${String(spec.name ?? '').replace(/[^a-zA-Z0-9 '!&-]/g, '').slice(0, 30)}". Do not add any codes, hashtags, hex values or extra text.`
-        : `${sBlock} The subject: ${names[next]}${archs[next] && archs[next] !== 'other' ? ` — a ${archs[next].replace(/-/g, ' ')}` : ''}. ${ICON}${roleClause} Accent colour: ${accent}. ${next === 'wild' || next === 'scatter' ? 'No other text, letters, numbers or codes beyond that single word.' : 'Do not render any text, letters, numbers or codes in the image.'}`;
+        : next === 'wild' || next === 'scatter'
+          ? `${sBlock} The subject: ${names[next]}${archs[next] && archs[next] !== 'other' ? ` — a ${archs[next].replace(/-/g, ' ')}` : ''}. ${ICON}${roleClause} Accent colour: ${accent}. No text of any kind beyond that single word.`
+          : `${NO_TEXT} ${sBlock} The subject: ${names[next]}${archs[next] && archs[next] !== 'other' ? ` — a ${archs[next].replace(/-/g, ' ')}` : ''}. ${ICON}${roleClause} Accent colour: ${accent}.`)
+      // Retry nudge stacks an even harder restatement on the second attempt.
+      + (a.attempts >= 2 && next !== 'marque' && next !== 'wild' && next !== 'scatter'
+        ? ' Reminder: a purely wordless illustration with ZERO characters, symbols, or writing.'
+        : '');
     let bytes: ArrayBuffer;
     try {
       // Text-bearing assets (marque, wild, scatter) use the text-capable
@@ -598,6 +621,7 @@ export default async (req: Request) => {
         String(spec.color ?? '#FF3DA5'),
         next === 'bg' || next === 'marque' ? 'landscape_16_9' : 'square_hd',
         chosenModel,
+        !(next === 'marque' || next === 'wild' || next === 'scatter'),
       );
     } catch (e) {
       // Provider failure (key, credits, model, network). The attempt was
