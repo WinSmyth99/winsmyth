@@ -35,8 +35,11 @@ Names lowercase, exact. (Existing records are fine — blank means no art yet.)
 
 ## 3. Netlify env var + redeploy
 - `FAL_KEY` = the fal key (All scopes, Same value all contexts)
-- Optional: `FAL_MODEL` to switch models without a code change
-  (default `fal-ai/recraft-v3`; e.g. a Flux endpoint id to A/B later)
+- Optional: `FAL_SYMBOL_MODEL` — model for symbols/wild/scatter/backgrounds
+  (default `fal-ai/flux/schnell`: fast and does not render text into art)
+- Optional: `FAL_MARQUE_MODEL` — model for the title marque
+  (default `fal-ai/recraft-v3`: best-in-class title lettering)
+- Legacy `FAL_MODEL`, if set, overrides the symbol model only
 - **Deploys → Trigger deploy → Deploy site**
 
 ## 4. Verify

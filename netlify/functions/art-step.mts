@@ -1,21 +1,23 @@
 // Art pipeline stepper — Layer 2 (generation-quality architecture).
 // One small unit of work per call so every invocation fits Netlify's
 // sync-function budget; the machine page drives the loop:
-//   phase A: generate the next missing asset via fal.ai (Recraft V3 by
-//            default) in the locked house style → store in Netlify Blobs
-//   phase B: critic-gate the stored asset via Claude vision (reel-size
-//            legibility, single subject, style coherence, no text) →
+//   phase A: generate the next missing asset via fal.ai — symbols/wild/
+//            scatter/bg on the SYMBOL model (FLUX schnell by default,
+//            fast and text-free), the marque on Recraft V3 (best-in-class
+//            title lettering) → store in Netlify Blobs
+//   phase B: critic-gate the stored asset via Claude vision (showcase
+//            mode: text/hex + adult-content guard only) →
 //            pass | one regen | emoji fallback for that symbol
 // State lives in the Airtable record (art_json + art_status), so the
 // loop is resumable by anyone who opens the machine.
 //
-// Cost note: ~10 raster assets per machine at Recraft V3's listed
-// $0.04/image ≈ $0.40/machine (verify at fal.ai/pricing) + ~10 cheap
-// vision calls. The build rate limit bounds worst-case spend per IP.
+// Cost note: ~11 schnell assets (listed ~$0.003/MP) + 1 Recraft marque
+// (listed ~$0.04) ≈ $0.07/machine before reuse — verify at fal.ai/pricing.
+// The build rate limit bounds worst-case spend per IP.
 
 import { getStore } from '@netlify/blobs';
 
-interface AssetState { key?: string; status: 'pending' | 'stored' | 'ok' | 'fallback'; attempts: number; criticAttempts?: number; reason?: string }
+interface AssetState { key?: string; status: 'pending' | 'stored' | 'ok' | 'fallback'; attempts: number; criticAttempts?: number; criticRuns?: number; model?: string; prompt?: string; reason?: string }
 interface ArtState { assets: Record<string, AssetState>; done: boolean; gen?: string }
 
 // Player-selectable art styles. Each block is the consistent language the
@@ -118,6 +120,11 @@ function assetTag(
 
   const special = sid === 'wild' || sid === 'scatter';
   const prefix = sid === 'wild' ? 'wild' : sid === 'scatter' ? 'scatter' : 'symbol';
+  // kind is the real ROLE (symbol | wild | scatter | background) so the
+  // registry is filterable by role at a glance; the tag keeps its prefix
+  // for uniqueness. Pre-v36 rows used kind='symbol' for wild/scatter, but
+  // those are style_version 1 and already retired from lookups.
+  const roleKind = special ? sid : 'symbol';
 
   // Identity-bearing archetypes (a witch is not a clown): these swap only
   // on exact name, like wild/scatter. Objects and creatures stay generic.
@@ -129,11 +136,15 @@ function assetTag(
     || (CHARACTER.includes(arch) && mode !== 'aggressive')
     || arch === 'other';
 
-  if (useName) return { kind: 'symbol', tag: `${prefix}:name:${norm(name)}:${ts}`, archetype: arch };
-  return { kind: 'symbol', tag: `${prefix}:arch:${arch}:${ts}`, archetype: arch };
+  if (useName) return { kind: roleKind, tag: `${prefix}:name:${norm(name)}:${ts}`, archetype: arch };
+  return { kind: roleKind, tag: `${prefix}:arch:${arch}:${ts}`, archetype: arch };
 }
 
-const STYLE_VERSION = '1';
+// Bumped 1 → 2 with the symbol-model switch (Recraft → FLUX): reuse must
+// never mix assets rendered by different generators into one machine, so
+// pre-switch registry rows simply stop matching. They stay in the table
+// harmlessly; clear them manually if you want a tidy base.
+const STYLE_VERSION = '2';
 
 // Hue of a #rrggbb colour (0-360), or null for achromatic/invalid.
 function hueOf(hex: string): number | null {
@@ -200,12 +211,17 @@ async function registryRegister(base: string, token: string, fields: Record<stri
 }
 
 async function registryBumpUses(base: string, token: string, recId: string, uses: number): Promise<void> {
-  try {
-    await fetch(`https://api.airtable.com/v0/${base}/assets/${recId}`, {
+  const patch = (fields: Record<string, unknown>) =>
+    fetch(`https://api.airtable.com/v0/${base}/assets/${recId}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({ fields: { uses: uses + 1 } }),
+      body: JSON.stringify({ fields }),
     });
+  try {
+    const r = await patch({ uses: uses + 1, last_used_at: new Date().toISOString() });
+    // If last_used_at doesn't exist in the base, do not lose the uses
+    // increment — retry with the count alone.
+    if (!r.ok) await patch({ uses: uses + 1 });
   } catch { /* non-fatal */ }
 }
 
@@ -226,19 +242,36 @@ async function airtablePatch(base: string, token: string, id: string, fields: Re
   if (!r.ok) throw new Error(`airtable_patch ${r.status}: ${(await r.text()).slice(0, 300)}`);
 }
 
-async function generateImage(prompt: string, machineColor: string, imageSize = 'square_hd'): Promise<ArrayBuffer> {
+// MODEL SPLIT (Option B): symbols, wild, scatter and backgrounds use a
+// model that does NOT render text by default (Recraft is SOTA at text
+// rendering, which is exactly why it kept stamping 'MEAD'/'SCATTER' onto
+// symbols). The marque keeps Recraft, because a title logo is the one
+// asset that WANTS best-in-class lettering. Both are flippable per-deploy
+// via env vars, no code change needed:
+//   FAL_SYMBOL_MODEL  (default fal-ai/flux/schnell)
+//   FAL_MARQUE_MODEL  (default fal-ai/recraft-v3)
+// Legacy FAL_MODEL, if set, overrides the SYMBOL model only.
+const symbolModel = () => process.env.FAL_SYMBOL_MODEL || process.env.FAL_MODEL || 'fal-ai/flux/schnell';
+const marqueModel = () => process.env.FAL_MARQUE_MODEL || 'fal-ai/recraft-v3';
+
+async function generateImage(prompt: string, machineColor: string, imageSize = 'square_hd', model?: string): Promise<ArrayBuffer> {
   const falKey = process.env.FAL_KEY;
   if (!falKey) throw new Error('fal_unconfigured');
-  const model = process.env.FAL_MODEL || 'fal-ai/recraft-v3';
-  const r = await fetch(`https://fal.run/${model}`, {
+  const chosen = model || symbolModel();
+  // Recraft accepts a `colors` palette hint and a `style`; FLUX and most
+  // other models reject unknown fields, so only send those extras to
+  // Recraft. Everything else gets the portable minimal payload.
+  const isRecraft = chosen.includes('recraft');
+  const body: Record<string, unknown> = { prompt, image_size: imageSize };
+  if (isRecraft) {
+    body.style = 'digital_illustration';
+    const rgb = hexToRgb(machineColor);
+    if (rgb) body.colors = [rgb];
+  }
+  const r = await fetch(`https://fal.run/${chosen}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Key ${falKey}` },
-    body: JSON.stringify({
-      prompt,
-      image_size: imageSize,
-      style: 'digital_illustration',
-      colors: [hexToRgb(machineColor)].filter(Boolean),
-    }),
+    body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(`fal ${r.status}: ${(await r.text()).slice(0, 300)}`);
   const d = await r.json();
@@ -256,9 +289,8 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
-// Critic criteria are style-aware: the expected style passed in is the
-// SAME block the generation prompt used, so the gate can never fail art
-// for being exactly what was asked for.
+// Showcase-mode critics ignore the style argument by design (kept in the
+// signature so restoring full quality gating is a prompt-only revert).
 const CRITIC_MARQUE_SYS = (_style: string) => `You review a game TITLE LOGO image. FAIL (pass=false) ONLY if: there is no legible lettering at all; or the lettering is garbled/nonsense; or it shows extra codes, hashtags or hex values in addition to the title; or it contains disturbing or adult content. Ignore all other issues — exact wording, style, background and whether it looks like a photo do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
 const CRITIC_BG_SYS = (_style: string) => `You review backdrop art for a game screen. FAIL (pass=false) ONLY if: it contains ANY readable letters, words, numbers or typography anywhere; or it contains disturbing or adult content. Ignore all other issues — style, brightness and composition do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
@@ -272,9 +304,10 @@ const CRITIC_BG_SYS = (_style: string) => `You review backdrop art for a game sc
 // three CRITIC_* prompts to their pre-v33 form.
 const CRITIC_SYS = (_style: string) => `You review slot machine symbol art. FAIL (pass=false) ONLY if: the image contains ANY readable text, letters, words, numbers, hashtags or hex codes anywhere; or it contains disturbing or adult content. Ignore all other issues — style, composition, background, duplicates and subject accuracy do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
-// Critic failure paths fail CLOSED: an unreviewed image never ships.
-// Transient errors are retried (criticAttempts in the caller); a second
-// failure falls the asset back to emoji.
+// Critic call. Outage policy lives in the CALLER (Phase B): a failed
+// critic call (error: true) is retried once, then the image ships with a
+// 'shipped_unreviewed' flag rather than blanking the machine; an active
+// content REJECT (pass: false) still falls back after one regeneration.
 // Detect the true image media type from magic bytes. FAL/recraft can
 // return PNG, JPEG or WebP; hardcoding image/png makes the vision API
 // reject a mislabelled JPEG with 400 "Could not process image", which
@@ -305,7 +338,7 @@ async function critic(pngBytes: ArrayBuffer, sid: string, subject = '', style = 
         content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
           { type: 'text', text: sid === 'marque'
-            ? `Review this sign. It must display exactly these words and nothing else: "${subject}".`
+            ? `Review this title logo. The intended title is: "${subject}".`
             : subject ? `Review this image. It is supposed to depict: ${subject}.` : 'Review this image.' },
         ],
       }],
@@ -314,7 +347,17 @@ async function critic(pngBytes: ArrayBuffer, sid: string, subject = '', style = 
   if (!r.ok) return { pass: false, reasons: [`critic_error_${r.status}`], error: true };
   try {
     const d = await r.json();
-    const t = JSON.parse(String(d.content?.[0]?.text ?? '').replace(/```json|```/g, '').trim());
+    const raw = String(d.content?.[0]?.text ?? '');
+    // Extract the JSON object even if the model wraps it in prose or code
+    // fences. Parsing the whole string broke on any surrounding text and
+    // fell through to critic_parse_error (shipping unreviewed). Slice from
+    // the first { to the last } instead.
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) {
+      return { pass: false, reasons: ['critic_parse_error'], error: true };
+    }
+    const t = JSON.parse(raw.slice(start, end + 1));
     return { pass: Boolean(t.pass), reasons: Array.isArray(t.reasons) ? t.reasons.slice(0, 3).map(String) : [] };
   } catch {
     return { pass: false, reasons: ['critic_parse_error'], error: true };
@@ -324,6 +367,25 @@ async function critic(pngBytes: ArrayBuffer, sid: string, subject = '', style = 
 function counts(state: ArtState, total: number) {
   const settled = Object.values(state.assets).filter((a) => a.status === 'ok' || a.status === 'fallback').length;
   return { completed: settled, total };
+}
+
+// Machine-level telemetry written once the forge settles. Best-effort by
+// design: a missing Airtable field skips the extras without touching the
+// core flow, and the health probes name exactly which field is absent.
+// gen_calls goes in its OWN patch so an optional field can never block
+// the agreed set.
+async function writeSettleTelemetry(base: string, token: string, id: string, state: ArtState, spec: Record<string, unknown>) {
+  const vals = Object.values(state.assets);
+  await airtablePatch(base, token, id, {
+    art_style: String((spec as { artStyle?: string }).artStyle ?? 'synthwave'),
+    theme_style: String((spec as { themeStyle?: string }).themeStyle ?? 'default'),
+    art_ready: vals.filter((a) => a.status === 'ok').length,
+    art_fallback: vals.filter((a) => a.status === 'fallback').length,
+    forged_at: new Date().toISOString(),
+  }).catch(() => undefined);
+  await airtablePatch(base, token, id, {
+    gen_calls: vals.reduce((n, a) => n + a.attempts, 0),
+  }).catch(() => undefined);
 }
 
 function publicMap(state: ArtState): Record<string, string> {
@@ -381,6 +443,7 @@ export default async (req: Request) => {
       const verdict = bytes
         ? await critic(bytes, toJudge, subject, sDesc)
         : { pass: false, reasons: ['blob_missing'] as string[], error: false };
+      if (bytes) a.criticRuns = (a.criticRuns ?? 0) + 1;
       if (verdict.error) {
         // CRITIC OUTAGE (the call itself failed: HTTP error, parse error,
         // unconfigured — NOT a content reject). Retry once; if the critic
@@ -402,12 +465,29 @@ export default async (req: Request) => {
         a.reason = undefined;
         const reg = toJudge === 'marque' ? null : assetTag(toJudge, names[toJudge] ?? '', String(spec.themeStyle ?? 'default'), archs[toJudge], id);
         if (reg) {
+          // tier: low/mid/premium for pay symbols, 'special' for wild and
+          // scatter; backgrounds carry no tier.
+          const symIdx = /^s(\d+)$/.exec(toJudge);
+          const tier = symIdx ? String(spec.symbols?.[Number(symIdx[1])]?.tier ?? '')
+            : (toJudge === 'wild' || toJudge === 'scatter') ? 'special' : '';
           const regResult = await registryRegister(base, token, {
             asset_key: a.key, kind: reg.kind, subject_tag: reg.tag, archetype: reg.archetype,
             theme_style: String(spec.themeStyle ?? 'default'),
             palette: String(spec.color ?? ''),
             art_style: String((spec as { artStyle?: string }).artStyle ?? 'synthwave'),
             style_version: STYLE_VERSION, status: 'ok', uses: 1, machine_id: id,
+            // Granularity columns (v36): make the registry filterable and
+            // the tuning data queryable instead of buried in art_json.
+            model: a.model ?? '',
+            subject_name: names[toJudge] ?? '',
+            ...(tier ? { tier } : {}),
+            reviewed: true,
+            gen_attempts: a.attempts,
+            critic_attempts: a.criticRuns ?? 1,
+            prompt: a.prompt ?? '',
+            machine_name: String(spec.name ?? ''),
+            palette_name: colourName(String(spec.color ?? '')),
+            last_used_at: new Date().toISOString(),
           });
           // Surface a persistence failure without blocking: the asset still
           // serves on this machine, but we record WHY it didn't enter the
@@ -435,6 +515,7 @@ export default async (req: Request) => {
       if (lastReason) {
         await airtablePatch(base, token, id, { art_note: String(lastReason).slice(0, 200) }).catch(() => undefined);
       }
+      if (allSettled) await writeSettleTelemetry(base, token, id, state, spec);
       return Response.json({ phase: state.done ? 'done' : 'critiqued', judged: toJudge, pass: state.assets[toJudge].status === 'ok', reason: a.reason ?? null, ...counts(state, ids.length), artMap: publicMap(state) });
     }
 
@@ -443,6 +524,7 @@ export default async (req: Request) => {
     if (!next) {
       state.done = true;
       await airtablePatch(base, token, id, { art_json: JSON.stringify(state), art_status: Object.keys(publicMap(state)).length ? 'ready' : 'fallback' });
+      await writeSettleTelemetry(base, token, id, state, spec);
       return Response.json({ phase: 'done', ...counts(state, ids.length), artMap: publicMap(state) });
     }
     const a = state.assets[next];
@@ -464,6 +546,7 @@ export default async (req: Request) => {
           art_json: JSON.stringify(state),
           art_status: allSettled ? 'ready' : 'partial',
         });
+        if (allSettled) await writeSettleTelemetry(base, token, id, state, spec);
         return Response.json({ phase: allSettled ? 'done' : 'reused', reused: next, ...counts(state, ids.length), artMap: publicMap(state) });
       }
     }
@@ -478,11 +561,13 @@ export default async (req: Request) => {
     const ICON = 'Single centred subject, ONE object only, no scene, no secondary objects, no background props. ' +
       'Plain simple solid dark background, evenly lit, generous even margin around the subject. ' +
       'Composed as a clean game icon that reads clearly at small size.';
-    // Role treatment makes the hierarchy visible with zero text: the
-    // scatter and wild must be instantly distinguishable from pay symbols.
+    // Role treatment makes the hierarchy visible with zero text. Note the
+    // wording deliberately avoids feeding renderable role words into the
+    // prompt: earlier art shipped with 'SCATTER' and 'WILD' painted on it
+    // because those exact tokens appeared in this clause.
     const roleClause =
-      next === 'scatter' ? ' This is the SCATTER symbol: give it a distinct radiant burst treatment, a glowing halo or emanating rays, unmistakably special versus ordinary symbols.'
-      : next === 'wild' ? ' This is the WILD symbol: present it as a premium bordered medallion or emblem, ornate frame, clearly more valuable than ordinary symbols.'
+      next === 'scatter' ? ' Give this one a distinct radiant burst treatment, a glowing halo or emanating rays, unmistakably more special than an ordinary game icon.'
+      : next === 'wild' ? ' Present this one as a premium bordered medallion, ornate frame, clearly the most valuable-looking icon in a set.'
       : '';
     const prompt = next === 'bg'
       ? `${BG_BASE} Art treatment: ${sBlock} Atmospheric ${accent}-lit ${norm(String(spec.themeStyle ?? 'default'))} scene with depth, sits behind a frosted glass panel so gentle richness is welcome. Do not render any text, letters, numbers or codes.`
@@ -491,10 +576,14 @@ export default async (req: Request) => {
         : `${sBlock} The subject: ${names[next]}. ${ICON}${roleClause} Accent colour: ${accent}. Do not render any text, letters, numbers or codes in the image.`;
     let bytes: ArrayBuffer;
     try {
+      const chosenModel = next === 'marque' ? marqueModel() : symbolModel();
+      a.model = chosenModel;
+      a.prompt = prompt.slice(0, 900); // capped: keeps art_json lean
       bytes = await generateImage(
         prompt,
         String(spec.color ?? '#FF3DA5'),
         next === 'bg' || next === 'marque' ? 'landscape_16_9' : 'square_hd',
+        chosenModel,
       );
     } catch (e) {
       // Provider failure (key, credits, model, network). The attempt was

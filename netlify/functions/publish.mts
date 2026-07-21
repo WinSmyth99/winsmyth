@@ -21,6 +21,13 @@ export default async (req: Request) => {
       body: JSON.stringify({ fields: { status: 'live' } }),
     });
     if (!w.ok) return Response.json({ error: 'publish_failed' }, { status: 502 });
+    // published_at is telemetry, not flow: its own best-effort patch so a
+    // missing field can never break the publish itself.
+    await fetch(`https://api.airtable.com/v0/${base}/machines/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ fields: { published_at: new Date().toISOString() } }),
+    }).catch(() => undefined);
     return Response.json({ published: true });
   } catch { return Response.json({ error: 'publish_failed' }, { status: 502 }); }
 };

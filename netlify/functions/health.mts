@@ -113,6 +113,14 @@ export default async () => {
     house: await probeField('machines', 'house'),
     plays: await probeField('machines', 'plays'),
     created_at: await probeField('machines', 'created_at'), // catalog sorts on it
+    art_note: await probeField('machines', 'art_note'),
+    art_style: await probeField('machines', 'art_style'),
+    theme_style: await probeField('machines', 'theme_style'),
+    art_ready: await probeField('machines', 'art_ready'),
+    art_fallback: await probeField('machines', 'art_fallback'),
+    forged_at: await probeField('machines', 'forged_at'),
+    published_at: await probeField('machines', 'published_at'),
+    gen_calls_optional: await probeField('machines', 'gen_calls'), // MISSING is fine if you skipped it
   };
   out.assets_fields = {
     asset_key: await probeField('assets', 'asset_key'),
@@ -126,11 +134,24 @@ export default async () => {
     art_style: await probeField('assets', 'art_style'),
     status: await probeField('assets', 'status'), // registry lookups filter on it
     machine_id: await probeField('assets', 'machine_id'),
+    model: await probeField('assets', 'model'),
+    subject_name: await probeField('assets', 'subject_name'),
+    tier: await probeField('assets', 'tier'),
+    reviewed: await probeField('assets', 'reviewed'),
+    gen_attempts: await probeField('assets', 'gen_attempts'),
+    critic_attempts: await probeField('assets', 'critic_attempts'),
+    prompt: await probeField('assets', 'prompt'),
+    machine_name: await probeField('assets', 'machine_name'),
+    palette_name: await probeField('assets', 'palette_name'),
+    last_used_at: await probeField('assets', 'last_used_at'),
   };
 
   // ── Provider probes ──
   out.fal_key_set = Boolean(process.env.FAL_KEY);
-  out.fal_model = process.env.FAL_MODEL || 'fal-ai/recraft-v3 (default)';
+  // Mirrors the resolution logic in art-step.mts exactly, so health shows
+  // what the pipeline will actually call.
+  out.fal_symbol_model = process.env.FAL_SYMBOL_MODEL || process.env.FAL_MODEL || 'fal-ai/flux/schnell (default)';
+  out.fal_marque_model = process.env.FAL_MARQUE_MODEL || 'fal-ai/recraft-v3 (default)';
   if (process.env.ANTHROPIC_API_KEY) {
     try {
       const a = await fetch('https://api.anthropic.com/v1/messages', {

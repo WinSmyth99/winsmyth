@@ -22,7 +22,7 @@ per IP in-memory (per-instance — not a real quota). Set a spend cap on
 the key before sharing the URL widely.
 
 ## Art pipeline (Layer 2)
-Generated symbol art via fal.ai (Recraft V3 default, swappable via `FAL_MODEL`), critic-gated by Claude vision, stored in Netlify Blobs. Setup: `docs/ART-PIPELINE-SETUP.md`. Without `FAL_KEY` machines stay emoji.
+Generated symbol art via fal.ai (FLUX schnell for symbols and backdrops, Recraft V3 for the title marque; both swappable via `FAL_SYMBOL_MODEL` / `FAL_MARQUE_MODEL`), critic-gated by Claude vision, stored in Netlify Blobs. Setup: `docs/ART-PIPELINE-SETUP.md`. Without `FAL_KEY` machines stay emoji.
 
 ## Diagnostics
 Open `/api/health` on the deployed site: reports key configuration, runs live read + self-cleaning write tests against the machines table, probes every required Airtable field by name (machines and assets), pings the Anthropic API, and round-trips a Netlify Blobs write/read/delete on both consistency modes. Airtable errors are returned verbatim — they name misconfigured fields.
