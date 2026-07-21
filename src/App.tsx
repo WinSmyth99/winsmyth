@@ -110,7 +110,7 @@ export default function App() {
       <header className="topbar">
         <button className="logo logo-btn" onClick={() => go('#/')} aria-label="Winsmyth lobby">
           <h1>WINSMYTH</h1>
-          <div className="sub">Social Casino · Free to Play · <a className="fair-link" href="#/fair">Fair play</a></div>
+          <div className="sub">Prompt · Forge · Play · <a className="fair-link" href="#/fair">Fair play</a></div>
         </button>
         <div className="wallet">
           <button className="mute" onClick={() => setMuted(sound.toggleMute())} aria-label="Toggle sound">

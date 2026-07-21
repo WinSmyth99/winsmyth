@@ -89,7 +89,7 @@ export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: str
       <div className="lobby-wordmark"><span>WINSMYTH</span></div>
       <section className="hero">
         <h2>Your Machine Awaits</h2>
-        <p>Describe any theme and watch your bespoke machine come to life in seconds. No purchase ever required — just your imagination.</p>
+        <p>Describe any theme and watch your bespoke machine come to life in seconds.</p>
         <button className="btn-build hero-cta" onClick={() => go('#/build')}>BUILD YOUR OWN</button>
       </section>
       <div className="filter-bar">
@@ -384,7 +384,7 @@ export function Machine({ slot, note, canPublish, onPublished, go }: { slot: Slo
         className="page-bg"
         style={artMap.bg
           ? { backgroundImage: `url(/api/art-get?key=${encodeURIComponent(artMap.bg)})` }
-          : { background: `radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, ${slot.color} 32%, #140b28) 0%, #0c0620 70%)` }}
+          : { background: 'transparent' }}
         aria-hidden="true"
       />
       <div className="machine-nav">
