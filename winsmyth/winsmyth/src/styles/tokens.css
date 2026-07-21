@@ -1,0 +1,73 @@
+/* Winsmyth design tokens — Vice synthwave, extracted from v19.
+   This file is the canonical token source the design-system spec
+   documents; components consume vars, never raw hexes. */
+:root {
+  --bg: #120826; --bg2: #1C0D3A; --surface: #241247; --card: #2B1655; --card2: #341C63;
+  --border: #45247A; --border2: #5C33A0;
+  --gc-primary: #FFB13D; --gc-secondary: #F08A1D; --gc-glow: rgba(255,177,61,0.30);
+  --accent: #9D5CFF; --accent2: #7B3AE8; --highlight: #FF3DA5;
+  --text: #F2ECFF; --muted: #A78FD6; --muted2: #6B549A;
+  --win: #3DE8FF; --jackpot: #FFB13D; --silver: #D8CCF2; --orange: #FF8A3D; --crimson: #FF4D6D;
+  --font-display: 'Anton', sans-serif;
+  --font-script: 'Yellowtail', cursive;
+  --font-body: 'Outfit', sans-serif;
+  --font-mono: 'Chakra Petch', sans-serif;
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; min-height: 100vh; }
+body {
+  background: var(--bg);
+  /* Premium permanent backdrop (v40): deep indigo dome, magenta/cyan
+     aurora corners, horizon glow, and a scatter of crisp star specks.
+     Fixed attachment so the scene holds while content scrolls. The
+     machine page's art backdrop (.page-bg) paints above this. */
+  background-image:
+    radial-gradient(1.8px 1.8px at 11% 18%, rgba(255,255,255,.75), transparent 60%),
+    radial-gradient(1.4px 1.4px at 27% 9%, rgba(255,255,255,.55), transparent 60%),
+    radial-gradient(2px 2px at 44% 24%, rgba(190,225,255,.7), transparent 60%),
+    radial-gradient(1.4px 1.4px at 63% 12%, rgba(255,255,255,.6), transparent 60%),
+    radial-gradient(1.8px 1.8px at 78% 21%, rgba(255,214,245,.7), transparent 60%),
+    radial-gradient(1.4px 1.4px at 91% 15%, rgba(255,255,255,.55), transparent 60%),
+    radial-gradient(1.6px 1.6px at 52% 6%, rgba(255,255,255,.65), transparent 60%),
+    radial-gradient(120% 85% at 50% -12%, #2C1566 0%, transparent 60%),
+    radial-gradient(70% 55% at 8% 106%, rgba(255,61,165,.26), transparent 62%),
+    radial-gradient(70% 55% at 92% 108%, rgba(0,229,255,.2), transparent 62%),
+    linear-gradient(180deg, transparent 64%, rgba(255,61,165,.18) 100%);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: var(--font-body);
+}
+
+/* Aurora drift — a slow, blurred colour field behind everything. Sits
+   below the floor grid (-1) and below the machine page's art backdrop
+   (same z, later in DOM). Disabled for reduced-motion users. */
+body::before {
+  content: ''; position: fixed; inset: -22%; z-index: -2; pointer-events: none;
+  background:
+    radial-gradient(42% 30% at 28% 24%, rgba(124, 77, 255, .3), transparent 70%),
+    radial-gradient(36% 26% at 74% 62%, rgba(255, 61, 165, .2), transparent 70%),
+    radial-gradient(30% 22% at 55% 38%, rgba(0, 229, 255, .16), transparent 70%);
+  filter: blur(26px);
+  animation: aurora-drift 46s ease-in-out infinite alternate;
+}
+@keyframes aurora-drift {
+  from { transform: translate3d(-2%, -1%, 0) scale(1); }
+  to { transform: translate3d(2.5%, 2%, 0) scale(1.07); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
+}
+
+/* Synthwave floor — the perspective grid at the page foot (signature #4).
+   Ambient only; opacity capped per design-system §4. */
+body::after {
+  content: ''; position: fixed; left: -20%; right: -20%; bottom: -12vh; height: 34vh;
+  background:
+    repeating-linear-gradient(90deg, rgba(255,61,165,.18) 0 1.5px, transparent 1.5px 64px),
+    repeating-linear-gradient(0deg, rgba(157,92,255,.20) 0 1.5px, transparent 1.5px 44px);
+  transform: perspective(320px) rotateX(58deg);
+  transform-origin: 50% 100%;
+  opacity: .28; pointer-events: none; z-index: -1;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 55%);
+  mask-image: linear-gradient(180deg, transparent, #000 55%);
+}

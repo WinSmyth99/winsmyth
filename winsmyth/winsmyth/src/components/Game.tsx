@@ -1,0 +1,194 @@
+// Game presentation components — extracted from App for the Phase C
+// page split. Rendering only; the useGame hook owns the clock.
+
+import { useMemo, useState } from 'react';
+import { useGame } from '../hooks/useGame';
+import { GridSym, paylinesFor, ROWS, scatterMinHit, SlotDef } from '../engine';
+import { displayPrizeGC } from '../lib/paymath';
+
+export const fmt = (n: number) => n.toLocaleString('en-US');
+
+// artMap: symbol slot-id → blob key, served via /api/art-get.
+export type ArtMap = Record<string, string>;
+
+export function artIdFor(slot: SlotDef, sym: GridSym): string | null {
+  if (sym.isWild) return 'wild';
+  if (sym.isBonus) return 'scatter';
+  const i = slot.symbols.findIndex((s) => s.emoji === sym.emoji);
+  return i >= 0 ? `s${i}` : null;
+}
+
+export function SymbolCell({ sym, hl, accent, artKey }: { sym: GridSym; hl?: boolean; accent: string; artKey?: string }) {
+  const tierCls = sym.isWild ? 'wild' : sym.isBonus ? 'scatter' : sym.tier ?? 'low';
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  return (
+    <div
+      className={`cell plate-${tierCls}${hl ? ' hl' : ''}`}
+      style={sym.isWild ? { boxShadow: `0 0 18px ${accent}` } : undefined}
+    >
+      <span className="cell-emoji">{sym.emoji}</span>
+      {artKey && (
+        <img
+          key={artKey}
+          className={`cell-art${loadedKey === artKey ? ' loaded' : ''}`}
+          src={`/api/art-get?key=${encodeURIComponent(artKey)}`}
+          alt={sym.name}
+          loading="lazy"
+          onLoad={() => setLoadedKey(artKey)}
+        />
+      )}
+    </div>
+  );
+}
+
+export function Reels({ slot, state, artMap }: { slot: SlotDef; state: ReturnType<typeof useGame>['state']; artMap?: ArtMap }) {
+  const shown = state.view?.grid ?? state.grid;
+  // Fixed 12-cell pattern, rendered twice: translateY(-50%) then equals
+  // exactly one period, so the scroll loops seamlessly at any reel width.
+  const base = [...slot.symbols, ...slot.symbols.slice().reverse()];
+  const pattern = Array.from({ length: 12 }, (_, i) => base[i % base.length]);
+  return (
+    <div className="reels-area">
+      {state.view?.badgeMult ? <div className="cascade-badge">CASCADE ×{state.view.badgeMult}</div> : null}
+      <div className="reels" style={{ gridTemplateColumns: `repeat(${slot.reels}, 1fr)` }}>
+        {Array.from({ length: slot.reels }, (_, reel) => {
+          const rp = state.reelPhases[reel] ?? 'idle';
+          const spinningNow = rp === 'spinning' || rp === 'anticipating';
+          return (
+            <div key={reel} className={`reel${rp === 'stopped' ? ' settled' : ''}`}>
+              {Array.from({ length: ROWS }, (_, row) => {
+                const cell = shown?.[reel]?.[row];
+                const key = `${reel}:${row}`;
+                const hl = !spinningNow && (state.view?.highlight.has(key) ?? false);
+                const pop = !spinningNow && (state.view?.popping.has(key) ?? false);
+                const ak = cell ? artIdFor(slot, cell.sym) : null;
+                return cell
+                  ? (
+                    <div key={row} className={pop ? 'pop-wrap' : ''}>
+                      <SymbolCell sym={cell.sym} hl={hl} accent={slot.color} artKey={ak ? artMap?.[ak] : undefined} />
+                    </div>
+                  )
+                  : <div key={row} className="cell plate-low"><span className="cell-emoji">•</span></div>;
+              })}
+              {spinningNow && (
+                <div className={`loop-overlay${rp === 'anticipating' ? ' anticipating' : ''}`}>
+                  <div className="loop-track">
+                    {[...pattern, ...pattern].map((s, i) => {
+                      const ak = artMap?.[`s${slot.symbols.findIndex((x) => x.emoji === s.emoji)}`];
+                      return (
+                        <div key={i} className="loop-cell">
+                          {ak
+                            ? <img className="loop-art" src={`/api/art-get?key=${encodeURIComponent(ak)}`} alt="" loading="lazy" />
+                            : <span className="cell-emoji">{s.emoji}</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export function Paytable({ slot, artMap, bet }: { slot: SlotDef; artMap?: ArtMap; bet: number }) {
+  const cols = useMemo(() => {
+    if (slot.gameType === 'scatter') {
+      const m0 = scatterMinHit(slot);
+      return [
+        { label: `${m0}-${m0 + 1}`, mf: 1 / 10 },
+        { label: `${m0 + 2}-${m0 + 4}`, mf: 1 / 3 },
+        { label: `${m0 + 5}+`, mf: 1 },
+      ];
+    }
+    if (slot.gameType === 'cluster') {
+      return [
+        { label: '5', mf: 1 / 10 }, { label: '6', mf: 1 / 5 }, { label: '7', mf: 1 / 3 },
+        { label: '8', mf: 1 / 2 }, { label: '9+', mf: 1 },
+      ];
+    }
+    // Paylines/ways ladder tracks the reel count (engine mf: full run 1,
+    // one short 1/3, two short 1/10, else 1/30). 2-of-a-kind is premium
+    // only; on 3 reels that is one short of a full run, hence 1/3.
+    const nr = slot.reels;
+    const mfFor = (count: number) =>
+      count === nr ? 1 : count === nr - 1 ? 1 / 3 : count === nr - 2 ? 1 / 10 : 1 / 30;
+    return Array.from({ length: nr - 1 }, (_, k) => {
+      const count = k + 2;
+      return { label: `${count}×`, mf: mfFor(count), ...(count === 2 ? { premOnly: true } : {}) };
+    });
+  }, [slot]);
+
+  const note = slot.gameType === 'ways'
+    ? `All ways: adjacent reels, any row. Values are per way at your ${fmt(bet)} bet (totals floor once, so multi-way wins can differ by a coin).`
+    : slot.gameType === 'scatter'
+      ? `No paylines: ${scatterMinHit(slot)}+ matching anywhere pay. Wilds count toward every symbol. Values at your ${fmt(bet)} bet.`
+      : slot.gameType === 'cluster'
+        ? `Clusters of 5+ touching symbols pay. Wilds join any cluster. Values at your ${fmt(bet)} bet.`
+        : `${paylinesFor(slot.reels).length} paylines, left to right. Values at your ${fmt(bet)} bet.`;
+
+  return (
+    <div className="paytable">
+      <div className="pt-title">Paytable <span className="pt-sub">wins at current stake</span></div>
+      <table>
+        <thead>
+          <tr><th>Symbol</th>{cols.map((c) => <th key={c.label}>{c.label}</th>)}</tr>
+        </thead>
+        <tbody>
+          {[...slot.symbols].reverse().map((s) => (
+            <tr key={s.emoji}>
+              <td className="pt-sym"><i className={`tier-dot tier-${s.tier}`} />
+                {(() => {
+                  const i = slot.symbols.findIndex((x) => x.emoji === s.emoji);
+                  const key = i >= 0 ? artMap?.[`s${i}`] : undefined;
+                  return key
+                    ? <img className="pt-art" src={`/api/art-get?key=${encodeURIComponent(key)}`} alt="" />
+                    : <span>{s.emoji}</span>;
+                })()} {s.name}</td>
+              {cols.map((c) => (
+                <td key={c.label} className="pt-val">
+                  {('premOnly' in c && c.premOnly && s.tier !== 'premium')
+                    ? '—'
+                    : fmt(displayPrizeGC(bet, s.multiplier, c.mf, slot.gameType === 'ways' ? 9 : 1))}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="pt-note">{note}</p>
+    </div>
+  );
+}
+
+export function WinOverlay({ rollup, cascades, tier }: { rollup: number; cascades: number; tier: string }) {
+  const label = tier === 'jackpot' ? 'JACKPOT!' : tier === 'mega' ? 'MEGA WIN!' : 'BIG WIN!';
+  return (
+    <div className="win-overlay">
+      <div className="win-card">
+      {(tier === 'mega' || tier === 'jackpot') && (
+        <div className="coin-burst" aria-hidden="true">
+          {Array.from({ length: tier === 'jackpot' ? 26 : 16 }, (_, i) => (
+            <span
+              key={i}
+              className="burst-coin"
+              style={{
+                '--dx': `${(Math.random() * 2 - 1) * 240}px`,
+                '--dy': `${-(60 + Math.random() * 260)}px`,
+                '--rot': `${(Math.random() * 2 - 1) * 520}deg`,
+                animationDelay: `${Math.random() * 0.35}s`,
+              } as React.CSSProperties}
+            >🪙</span>
+          ))}
+        </div>
+      )}
+        <div className="win-label">{label}</div>
+        <div className="win-amount">+{fmt(rollup)} GC</div>
+        <div className="win-sub">{cascades > 1 ? `${cascades} cascades` : ''}</div>
+      </div>
+    </div>
+  );
+}
