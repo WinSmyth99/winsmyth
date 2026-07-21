@@ -22,17 +22,17 @@ body {
      Fixed attachment so the scene holds while content scrolls. The
      machine page's art backdrop (.page-bg) paints above this. */
   background-image:
-    radial-gradient(1.6px 1.6px at 11% 18%, rgba(255,255,255,.55), transparent 60%),
-    radial-gradient(1.2px 1.2px at 27% 9%, rgba(255,255,255,.4), transparent 60%),
-    radial-gradient(1.8px 1.8px at 44% 24%, rgba(190,225,255,.5), transparent 60%),
-    radial-gradient(1.2px 1.2px at 63% 12%, rgba(255,255,255,.42), transparent 60%),
-    radial-gradient(1.6px 1.6px at 78% 21%, rgba(255,214,245,.5), transparent 60%),
-    radial-gradient(1.2px 1.2px at 91% 15%, rgba(255,255,255,.38), transparent 60%),
-    radial-gradient(1.4px 1.4px at 52% 6%, rgba(255,255,255,.45), transparent 60%),
-    radial-gradient(120% 85% at 50% -12%, #221050 0%, transparent 58%),
-    radial-gradient(70% 55% at 8% 106%, rgba(255,61,165,.14), transparent 60%),
-    radial-gradient(70% 55% at 92% 108%, rgba(0,229,255,.11), transparent 60%),
-    linear-gradient(180deg, transparent 68%, rgba(255,61,165,.12) 100%);
+    radial-gradient(1.8px 1.8px at 11% 18%, rgba(255,255,255,.75), transparent 60%),
+    radial-gradient(1.4px 1.4px at 27% 9%, rgba(255,255,255,.55), transparent 60%),
+    radial-gradient(2px 2px at 44% 24%, rgba(190,225,255,.7), transparent 60%),
+    radial-gradient(1.4px 1.4px at 63% 12%, rgba(255,255,255,.6), transparent 60%),
+    radial-gradient(1.8px 1.8px at 78% 21%, rgba(255,214,245,.7), transparent 60%),
+    radial-gradient(1.4px 1.4px at 91% 15%, rgba(255,255,255,.55), transparent 60%),
+    radial-gradient(1.6px 1.6px at 52% 6%, rgba(255,255,255,.65), transparent 60%),
+    radial-gradient(120% 85% at 50% -12%, #2C1566 0%, transparent 60%),
+    radial-gradient(70% 55% at 8% 106%, rgba(255,61,165,.26), transparent 62%),
+    radial-gradient(70% 55% at 92% 108%, rgba(0,229,255,.2), transparent 62%),
+    linear-gradient(180deg, transparent 64%, rgba(255,61,165,.18) 100%);
   background-attachment: fixed;
   color: var(--text);
   font-family: var(--font-body);
@@ -44,9 +44,9 @@ body {
 body::before {
   content: ''; position: fixed; inset: -22%; z-index: -2; pointer-events: none;
   background:
-    radial-gradient(42% 30% at 28% 24%, rgba(124, 77, 255, .17), transparent 70%),
-    radial-gradient(36% 26% at 74% 62%, rgba(255, 61, 165, .11), transparent 70%),
-    radial-gradient(30% 22% at 55% 38%, rgba(0, 229, 255, .09), transparent 70%);
+    radial-gradient(42% 30% at 28% 24%, rgba(124, 77, 255, .3), transparent 70%),
+    radial-gradient(36% 26% at 74% 62%, rgba(255, 61, 165, .2), transparent 70%),
+    radial-gradient(30% 22% at 55% 38%, rgba(0, 229, 255, .16), transparent 70%);
   filter: blur(26px);
   animation: aurora-drift 46s ease-in-out infinite alternate;
 }

@@ -86,6 +86,10 @@ export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: str
   const presets = entries.filter((e) => e.source === 'preset' && match(e));
   return (
     <div className="lobby">
+      {/* Permanent premium backdrop: drop a generated scene into
+          public/lobby-bg.jpg and it becomes the lobby's cover. Absent
+          file → the layer paints only its gradient over the ambient. */}
+      <div className="page-bg lobby-bg" aria-hidden="true" />
       <section className="hero">
         <h2>Your Machine Awaits</h2>
         <p>Describe any theme and watch your bespoke machine come to life in seconds. No purchase ever required — just your imagination.</p>
