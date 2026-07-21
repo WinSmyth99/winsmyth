@@ -11,9 +11,10 @@
 // State lives in the Airtable record (art_json + art_status), so the
 // loop is resumable by anyone who opens the machine.
 //
-// Cost note: ~11 schnell assets (listed ~$0.003/MP) + 1 Recraft marque
-// (listed ~$0.04) ≈ $0.07/machine before reuse — verify at fal.ai/pricing.
-// The build rate limit bounds worst-case spend per IP.
+// Cost note: ~9 schnell assets (listed ~$0.003/MP) + 3 Recraft text
+// assets — marque, wild, scatter — (listed ~$0.04 each) ≈ $0.15/machine
+// before reuse — verify at fal.ai/pricing. The build rate limit bounds
+// worst-case spend per IP.
 
 import { getStore } from '@netlify/blobs';
 
@@ -303,7 +304,12 @@ const CRITIC_BG_SYS = (_style: string) => `You review backdrop art for a game sc
 // (almost nothing falls back) while never shipping a symbol with words or
 // codes written across it. To restore full quality gating, revert the
 // three CRITIC_* prompts to their pre-v33 form.
-const CRITIC_SYS = (_style: string) => `You review slot machine symbol art. FAIL (pass=false) ONLY if: the image contains ANY readable text, letters, words, numbers, hashtags or hex codes anywhere; or the image clearly does NOT depict the stated subject at all (an empty frame for a scroll, a blank tile, or an entirely different object — minor artistic liberties are fine, fail only obvious mismatches); or it contains disturbing or adult content. Ignore all other issues — style, composition, background and duplicates do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+const CRITIC_SYS = (_style: string) => `You review slot machine symbol art. FAIL (pass=false) ONLY if: the image contains readable text that is NOT simply the symbol's own stated subject name (random words, codes, hashtags, hex values or garbled lettering all fail; a clean, accurate caption of the stated subject is acceptable); or the image clearly does NOT depict the stated subject at all (an empty frame for a scroll, a blank tile, or an entirely different object — minor artistic liberties are fine, fail only obvious mismatches); or it contains disturbing or adult content. Ignore all other issues — style, composition, background and duplicates do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
+
+// Wild/scatter carry their role word by design (v39). The critic verifies
+// the word is present and CORRECT — a garbled 'WILLD' is exactly the
+// failure this gate exists to catch.
+const CRITIC_SPECIAL_SYS = (word: string) => `You review a slot machine ${word} symbol. FAIL (pass=false) ONLY if: the word "${word}" is missing, misspelled or garbled; or the image contains any OTHER readable text, numbers, hashtags or hex codes beyond "${word}"; or the image clearly does not depict the stated subject at all; or it contains disturbing or adult content. Ignore all other issues — style, composition and background do NOT matter. Otherwise pass=true. Return ONLY JSON: {"pass": true|false, "reasons": ["..."]}.`;
 
 // Critic call. Outage policy lives in the CALLER (Phase B): a failed
 // critic call (error: true) is retried once, then the image ships with a
@@ -333,7 +339,7 @@ async function critic(pngBytes: ArrayBuffer, sid: string, subject = '', style = 
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 300,
-      system: sid === 'bg' ? CRITIC_BG_SYS(style) : sid === 'marque' ? CRITIC_MARQUE_SYS(style) : CRITIC_SYS(style),
+      system: sid === 'bg' ? CRITIC_BG_SYS(style) : sid === 'marque' ? CRITIC_MARQUE_SYS(style) : sid === 'wild' ? CRITIC_SPECIAL_SYS('WILD') : sid === 'scatter' ? CRITIC_SPECIAL_SYS('SCATTER') : CRITIC_SYS(style),
       messages: [{
         role: 'user',
         content: [
@@ -564,22 +570,25 @@ export default async (req: Request) => {
       'The subject fills most of the frame with a bold, chunky, instantly readable silhouette — never a ' +
       'thin sliver or wispy shape; long thin objects (bows, swords, staffs, arrows) are shown large at a ' +
       'dynamic diagonal. Composed as a clean game icon that reads clearly at small size.';
-    // Role treatment makes the hierarchy visible with zero text. Note the
-    // wording deliberately avoids feeding renderable role words into the
-    // prompt: earlier art shipped with 'SCATTER' and 'WILD' painted on it
-    // because those exact tokens appeared in this clause.
+    // Role treatment (v39, product direction): wild and scatter CARRY
+    // their role word — standard slot convention, it's how players learn
+    // the specials. These two generate on the text-capable model so the
+    // lettering is reliable, and the critic verifies the word is correct.
     const roleClause =
-      next === 'scatter' ? ' Give this one a distinct radiant burst treatment, a glowing halo or emanating rays, unmistakably more special than an ordinary game icon.'
-      : next === 'wild' ? ' Present this one as a premium bordered medallion, ornate frame, clearly the most valuable-looking icon in a set.'
+      next === 'scatter' ? ' Give this one a distinct radiant burst treatment, a glowing halo or emanating rays. The word "SCATTER" is rendered boldly and legibly across the emblem in decorative lettering matching the art treatment — spelled exactly SCATTER, and no other text.'
+      : next === 'wild' ? ' Present this one as a premium bordered medallion with an ornate frame. The word "WILD" is rendered boldly and legibly across the emblem in decorative lettering matching the art treatment — spelled exactly WILD, and no other text.'
       : '';
     const prompt = next === 'bg'
       ? `${BG_BASE} Art treatment: ${sBlock} Atmospheric ${accent}-lit ${norm(String(spec.themeStyle ?? 'default'))} scene with depth, sits behind a frosted glass panel so gentle richness is welcome. Do not render any text, letters, numbers or codes.`
       : next === 'marque'
         ? `${MARQUE_BASE} Art treatment: ${sBlock} The title reads ONLY these exact words and nothing else: "${String(spec.name ?? '').replace(/[^a-zA-Z0-9 '!&-]/g, '').slice(0, 30)}". Do not add any codes, hashtags, hex values or extra text.`
-        : `${sBlock} The subject: ${names[next]}. ${ICON}${roleClause} Accent colour: ${accent}. Do not render any text, letters, numbers or codes in the image.`;
+        : `${sBlock} The subject: ${names[next]}. ${ICON}${roleClause} Accent colour: ${accent}. ${next === 'wild' || next === 'scatter' ? 'No other text, letters, numbers or codes beyond that single word.' : 'Do not render any text, letters, numbers or codes in the image.'}`;
     let bytes: ArrayBuffer;
     try {
-      const chosenModel = next === 'marque' ? marqueModel() : symbolModel();
+      // Text-bearing assets (marque, wild, scatter) use the text-capable
+      // model; the eight pay symbols and backdrop stay on the fast
+      // text-free symbol model. Right tool per tile.
+      const chosenModel = next === 'marque' || next === 'wild' || next === 'scatter' ? marqueModel() : symbolModel();
       a.model = chosenModel;
       a.prompt = prompt.slice(0, 900); // capped: keeps art_json lean
       bytes = await generateImage(

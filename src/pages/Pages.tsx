@@ -15,8 +15,28 @@ import { sound } from '../sound/engine';
 const CHIPS = ['Pirate', 'Japanese', 'Deep space', 'Italian', 'Dragon', 'Luxury', 'Wizard', 'Safari', 'Rock', 'Fiesta'];
 
 export function MachineCard({ entry, onPlay }: { entry: CatalogEntry; onPlay: () => void }) {
-  const { slot, art } = entry;
+  const { slot } = entry;
   const preview = [...slot.symbols].reverse().slice(0, 3);
+  // Catalog-served entries (community/house) arrive with art. Session
+  // builds don't — fetch their persisted art map lazily so "Your
+  // machines" shows real art without requiring a publish.
+  const [fetched, setFetched] = useState<{ bg?: string; symbols?: string[] } | undefined>();
+  useEffect(() => {
+    if (entry.art || !slot.artId) return;
+    let alive = true;
+    fetch(`/api/art-map?id=${encodeURIComponent(slot.artId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!alive || !d?.artMap) return;
+        const m = d.artMap as Record<string, string>;
+        const symbols: string[] = [];
+        for (let i = 7; i >= 0 && symbols.length < 3; i--) if (m[`s${i}`]) symbols.push(m[`s${i}`]);
+        if (symbols.length || m.bg) setFetched({ ...(m.bg ? { bg: m.bg } : {}), symbols });
+      })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [entry.art, slot.artId]);
+  const art = entry.art ?? fetched;
   const hasThumbs = Boolean(art?.symbols?.length);
   return (
     <button
