@@ -484,7 +484,7 @@ main { padding-top: 8px; }
 .loop-cell { position: relative; }
 /* 3. Full-page machine backdrop, under the synthwave floor grid */
 .page-bg {
-  position: fixed; inset: 0; z-index: -2; pointer-events: none;
+  position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background-size: cover; background-position: center;
 }
 /* Lobby's permanent cover: a generated scene (public/lobby-bg.jpg) under

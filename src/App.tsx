@@ -8,6 +8,7 @@ import { sound } from './sound/engine';
 import { wallet } from './lib/wallet';
 import { CatalogEntry, fetchCommunity, presetEntries } from './lib/catalog';
 import { decodeSlot } from './lib/share';
+import LobbyScene from './components/LobbyScene';
 import { Build, Fairness, Lobby, Machine } from './pages/Pages';
 import { fmt } from './components/Game';
 
@@ -105,6 +106,7 @@ export default function App() {
 
   return (
     <div className="shell">
+      <LobbyScene />
       <header className="topbar">
         <button className="logo logo-btn" onClick={() => go('#/')} aria-label="Winsmyth lobby">
           <h1>WINSMYTH</h1>

@@ -9,7 +9,6 @@ import { ART_STYLES } from '../lib/artStyles';
 import { encodeSlot } from '../lib/share';
 import { consumeForgeIntent, setForgeIntent } from '../lib/forge';
 import { useGame } from '../hooks/useGame';
-import LobbyScene from '../components/LobbyScene';
 import { ArtMap, fmt, Paytable, Reels, WinOverlay } from '../components/Game';
 import { sound } from '../sound/engine';
 
@@ -87,8 +86,6 @@ export function Lobby({ entries, go }: { entries: CatalogEntry[]; go: (hash: str
   const nothingToShow = session.length === 0 && house.length === 0 && community.length === 0;
   return (
     <div className="lobby">
-      {/* Permanent premium synthwave backdrop (Design artifact, self-contained). */}
-      <LobbyScene />
       <div className="lobby-wordmark"><span>WINSMYTH</span></div>
       <section className="hero">
         <h2>Your Machine Awaits</h2>
