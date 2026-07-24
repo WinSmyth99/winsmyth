@@ -494,15 +494,10 @@ main { padding-top: 8px; }
   position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background-size: cover; background-position: center;
 }
-/* Lobby's permanent cover: a generated scene (public/lobby-bg.jpg) under
-   a dark gradient so the hero and cards stay legible. If the file is
-   absent, only the gradient paints and the ambient body scene shows. */
-.lobby-bg {
-  background-image:
-    linear-gradient(180deg, rgba(10,5,24,.48) 0%, rgba(10,5,24,.78) 62%, rgba(9,4,22,.94) 100%),
-    url('/lobby-bg.jpg');
-  background-position: center top;
-}
+/* (.lobby-bg removed: the class was applied by no component and pointed
+   at /lobby-bg.jpg, which does not exist in the repo — the lobby's real
+   backdrop is the LobbyScene component. Removing it also clears the
+   unresolved-asset warning in every build.) */
 .page-bg::after {
   content: ''; position: absolute; inset: 0;
   background: linear-gradient(180deg, rgba(18,8,38,.78) 0%, rgba(18,8,38,.62) 45%, rgba(18,8,38,.85) 100%);
@@ -627,9 +622,15 @@ main { padding-top: 8px; }
 /* The scene is authored at 1920×1080; scale it to always cover the
    viewport, anchored to the horizon so the sun/grid stay centred. */
 .lobby-scene-inner {
-  position: absolute; top: 50%; left: 50%;
-  width: 1920px; height: 1080px; margin: -540px 0 0 -960px;
-  transform-origin: center center;
+  /* TOP-anchored, not centred: the scene is fixed while the lobby grid
+     scrolls, so a centred horizon cuts through whatever card row lands
+     mid-viewport once the catalogue grows. Pinning the artboard to the
+     top keeps the sun/horizon in the hero band and puts flat dark ground
+     behind everything that scrolls. Cover still holds: scaled height
+     (1080 x scale) >= 100vh by construction. */
+  position: absolute; top: 0; left: 50%;
+  width: 1920px; height: 1080px; margin: 0 0 0 -960px;
+  transform-origin: top center;
   /* cover: fill by the larger axis. 100vw/1920 and 100vh/1080, max. */
   transform: scale(max(calc(100vw / 1920), calc(100vh / 1080)));
   background: linear-gradient(180deg, #04010e 0%, #08021f 16%, #150641 34%, #2c0b73 48%, #5a1497 55%, #8f16a6 59%, #d01f95 61.6%, #ff2d95 63.4%, #ff62ab 64.8%, #ffa06a 65.8%, #7a1c66 67%, #2a0a4e 71%, #10052c 80%, #06021a 100%);
@@ -640,7 +641,11 @@ main { padding-top: 8px; }
 @keyframes sw-drift2 { 0%,100% { transform: translate(0,0) scale(1); opacity:.4; } 50% { transform: translate(-60px,20px) scale(1.15); opacity:.62; } }
 @keyframes sw-rayspin { from { transform: translate(-50%,-50%) rotate(0deg); } to { transform: translate(-50%,-50%) rotate(360deg); } }
 @keyframes sw-flare { 0%,100% { opacity:.35; } 50% { opacity:.7; } }
-@keyframes sw-sunpulse { 0%,100% { box-shadow: 0 0 120px 30px rgba(255,120,170,.5), 0 0 300px 90px rgba(255,45,150,.32); } 50% { box-shadow: 0 0 150px 40px rgba(255,140,190,.6), 0 0 360px 110px rgba(255,45,150,.4); } }
+/* The glow itself is now STATIC (set inline on the sun element); the
+   pulse animates brightness only. Animating 300px+ box-shadow blurs
+   forced a huge repaint every frame — the stutter reported as the
+   background "going glitchy". */
+@keyframes sw-sunpulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.12); } }
 @media (prefers-reduced-motion: reduce) {
   .lobby-scene * { animation: none !important; }
 }

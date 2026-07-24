@@ -1,121 +1,201 @@
-# Concept Tagging — Design Doc
-### specs/concept-tagging.md — raising asset reuse without the VPS
+// Diagnostic endpoint: GET /api/health
+// Reports configuration and live connectivity WITHOUT exposing secrets.
+// The Airtable write test creates a __healthcheck__ record (status
+// 'rejected', so it can never reach the public catalogue) and deletes it
+// immediately — Airtable's error body names misconfigured fields, which
+// is exactly what silent-failure debugging needs.
 
-**Status:** BUILT (balanced default). Vocabulary finalised at 40 buckets + 'other'.
-**Problem owner:** the asset registry (mark 2, step 3) reuses on the
-normalized symbol *name*. "toad" and "frog" are the same concept but
-different strings, so they miss each other and both generate. Observed
-live: two wizard machines shared candle/scroll/crystal-ball/wizard/bg
-(identical names) but re-painted frog≠toad, elixir≠potion, dragon≠witch.
-Reuse works; it's just bottlenecked by naming variance.
+export default async () => {
+  const out: Record<string, unknown> = {
+    anthropic_key_set: Boolean(process.env.ANTHROPIC_API_KEY),
+    airtable_token_set: Boolean(process.env.AIRTABLE_TOKEN),
+    airtable_base_id_set: Boolean(process.env.AIRTABLE_BASE_ID),
+  };
+  const token = process.env.AIRTABLE_TOKEN;
+  const base = process.env.AIRTABLE_BASE_ID;
 
-**Goal:** raise the reuse rate — lower cost and forge time per machine —
-by matching on *concept* rather than exact name, while keeping the
-visual specificity that makes each machine feel bespoke.
+  if (!token || !base) {
+    out.airtable = 'not configured — persistence disabled by design';
+    return Response.json(out);
+  }
 
-**Non-goal:** semantic/embedding matching. That's the correct general
-solution (production-architecture §5) but needs a vector store = VPS
-era. This doc is the Airtable-stage bridge that the embedding version
-later supersedes cleanly.
+  // Read test
+  try {
+    const r = await fetch(`https://api.airtable.com/v0/${base}/machines?maxRecords=1`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    out.airtable_read = r.ok ? 'ok' : { status: r.status, body: (await r.text()).slice(0, 400) };
+  } catch (e) {
+    out.airtable_read = { error: String(e).slice(0, 200) };
+  }
 
----
+  // Write test (self-cleaning)
+  try {
+    const w = await fetch(`https://api.airtable.com/v0/${base}/machines`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        records: [{
+          fields: {
+            name: '__healthcheck__', spec_json: '{}', status: 'rejected',
+            game_type: 'paylines', reels: 5, prompt: 'healthcheck', triage_reasons: 'healthcheck',
+          },
+        }],
+      }),
+    });
+    if (w.ok) {
+      out.airtable_write = 'ok';
+      const d = await w.json();
+      const id = d.records?.[0]?.id;
+      if (id) {
+        await fetch(`https://api.airtable.com/v0/${base}/machines/${id}`, {
+          method: 'DELETE', headers: { authorization: `Bearer ${token}` },
+        }).catch(() => undefined);
+      }
+    } else {
+      out.airtable_write = { status: w.status, body: (await w.text()).slice(0, 400) };
+    }
+  } catch (e) {
+    out.airtable_write = { error: String(e).slice(0, 200) };
+  }
 
-## 1. Approach: model-assigned archetype from a controlled vocabulary
+  // Registry write test: sends the EXACT payload the art pipeline writes
+  // to the assets table (this is what was failing silently and leaving the
+  // table empty). typecast mirrors the pipeline so a missing select option
+  // is created rather than rejecting the record. Self-cleaning.
+  try {
+    const w = await fetch(`https://api.airtable.com/v0/${base}/assets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        records: [{
+          fields: {
+            asset_key: 'art/__healthcheck__/g/probe-1.png', kind: 'symbol',
+            subject_tag: '__healthcheck__', archetype: 'other', theme_style: 'default',
+            palette: '#FF3DA5', art_style: 'synthwave', style_version: 'healthcheck',
+            status: 'ok', uses: 1, machine_id: '__healthcheck__',
+          },
+        }],
+        typecast: true,
+      }),
+    });
+    if (w.ok) {
+      out.assets_write = 'ok';
+      const d = await w.json();
+      const id = d.records?.[0]?.id;
+      if (id) {
+        await fetch(`https://api.airtable.com/v0/${base}/assets/${id}`, {
+          method: 'DELETE', headers: { authorization: `Bearer ${token}` },
+        }).catch(() => undefined);
+      }
+    } else {
+      out.assets_write = { status: w.status, body: (await w.text()).slice(0, 400) };
+    }
+  } catch (e) {
+    out.assets_write = { error: String(e).slice(0, 200) };
+  }
 
-At generation time the model already returns the machine spec. Extend
-the schema so each symbol also carries an `archetype` drawn from a fixed
-controlled list (below). Reuse then keys on **`archetype + theme_style`**
-instead of `name + theme_style`.
+  // ── Required-field probes: a filterByFormula naming a missing field
+  // returns 422, which tells us EXACTLY which Airtable field is absent. ──
+  const probeField = async (table: string, field: string) => {
+    try {
+      const u = new URL(`https://api.airtable.com/v0/${base}/${table}`);
+      u.searchParams.set('filterByFormula', `{${field}}=''`);
+      u.searchParams.set('maxRecords', '1');
+      const r = await fetch(u, { headers: { authorization: `Bearer ${token}` } });
+      return r.ok ? 'ok' : 'MISSING';
+    } catch { return 'unreachable'; }
+  };
+  out.machines_fields = {
+    status: await probeField('machines', 'status'),
+    art_json: await probeField('machines', 'art_json'),
+    art_status: await probeField('machines', 'art_status'),
+    house: await probeField('machines', 'house'),
+    plays: await probeField('machines', 'plays'),
+    created_at: await probeField('machines', 'created_at'), // catalog sorts on it
+  };
+  out.assets_fields = {
+    asset_key: await probeField('assets', 'asset_key'),
+    kind: await probeField('assets', 'kind'),
+    subject_tag: await probeField('assets', 'subject_tag'),
+    archetype: await probeField('assets', 'archetype'),
+    theme_style: await probeField('assets', 'theme_style'),
+    style_version: await probeField('assets', 'style_version'),
+    uses: await probeField('assets', 'uses'),
+    palette: await probeField('assets', 'palette'),
+    art_style: await probeField('assets', 'art_style'),
+    status: await probeField('assets', 'status'), // registry lookups filter on it
+    machine_id: await probeField('assets', 'machine_id'),
+  };
 
-Why model-assigned rather than a hardcoded name→archetype map:
-- A static map can't cover every theme's vocabulary; the model can slot
-  a novel symbol ("kraken", "circuit sprite") into the nearest bucket.
-- It rides the generation call already in flight — one extra field, no
-  new request, no new infrastructure.
-- Falls back safely: an unrecognised/blank archetype reverts to
-  name-based tagging (today's behaviour), so nothing regresses.
+  // ── Provider probes ──
+  out.fal_key_set = Boolean(process.env.FAL_KEY);
+  out.fal_model = process.env.FAL_MODEL || 'fal-ai/recraft-v3 (default)';
+  if (process.env.ANTHROPIC_API_KEY) {
+    try {
+      const a = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+      });
+      out.anthropic_api = a.ok ? 'ok' : { status: a.status, body: (await a.text()).slice(0, 300) };
+    } catch (e) { out.anthropic_api = { error: String(e).slice(0, 200) }; }
+    // Critic VISION self-test: the text ping above does not prove the
+    // image path. This sends a real (tiny) PNG image block on the exact
+    // model the art critic uses, so /api/health surfaces a broken vision
+    // call directly instead of leaving it to fail silently in the forge.
+    try {
+      // Valid opaque 2x2 RGB PNG (no alpha). A 1x1 *transparent* PNG can
+      // itself trigger a 400 on the vision API, giving a false red — this
+      // opaque image tests the real path honestly.
+      const testPng = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGOoCNgCRAwQCgAorgXx9KNB/AAAAABJRU5ErkJggg==';
+      const cv = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 8,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: testPng } },
+              { type: 'text', text: 'Reply OK.' },
+            ],
+          }],
+        }),
+      });
+      out.critic_vision = cv.ok ? 'ok' : { status: cv.status, body: (await cv.text()).slice(0, 300) };
+    } catch (e) { out.critic_vision = { error: String(e).slice(0, 200) }; }
+  }
+  try {
+    const { getStore } = await import('@netlify/blobs');
+    const strong = getStore({ name: 'machine-art', consistency: 'strong' });
+    const eventual = getStore('machine-art');
+    await strong.set('__health__', 'ok');
+    const vs = await strong.get('__health__', { type: 'text' });
+    const ve = await eventual.get('__health__', { type: 'text' });
+    const meta = await strong.getMetadata('__health__').catch(() => null);
+    let keyCount = -1;
+    try {
+      const listing = await strong.list({ prefix: 'art/' });
+      keyCount = listing.blobs?.length ?? -1;
+    } catch { /* listing unsupported or failed */ }
+    out.blobs = {
+      strong_read: vs === 'ok' ? 'ok' : `got:${JSON.stringify(vs)?.slice(0, 60)}`,
+      eventual_read: ve === 'ok' ? 'ok' : `got:${JSON.stringify(ve)?.slice(0, 60)}`,
+      metadata_present: Boolean(meta),
+      art_keys_visible: keyCount,
+    };
+    await strong.delete('__health__');
+  } catch (e) { out.blobs = { error: String(e).slice(0, 250) }; }
 
-## 2. The controlled vocabulary (v1, ~32 buckets)
-
-Grouped for readability; the model receives the flat list and must pick
-exactly one per symbol, or `other`.
-
-- **Creatures:** `amphibian`, `reptile`, `bird`, `feline`, `canine`,
-  `sea-creature`, `insect`, `mythic-beast`, `humanoid-figure`
-- **Objects:** `vessel-potion`, `blade-weapon`, `blunt-weapon`,
-  `tool-implement`, `book-scroll`, `key-lock`, `coin-treasure`,
-  `gem-crystal`, `container-chest`
-- **Nature:** `plant-flower`, `fruit`, `fungus`, `tree`, `element-fire`,
-  `element-water`, `celestial`, `weather`
-- **Structures/misc:** `building`, `vehicle`, `emblem-symbol`,
-  `food-drink`, `mask-face`, `other`
-
-Tiers stay orthogonal — the tag is `archetype:<value>` and reuse still
-scopes within `theme_style`, so a `wizard`-style amphibian never reuses
-a `vegas`-style one.
-
-## 3. The reuse-aggressiveness knob (the product tradeoff)
-
-Broadening the key trades cost against uniqueness. Made explicit and
-tunable via one env var, `REUSE_MODE`:
-
-| Mode | Reuse key | Effect |
-|---|---|---|
-| `strict` | `name + theme_style` | Today's behaviour. Max uniqueness, min reuse. |
-| `balanced` *(proposed default)* | `archetype + theme_style`, but **wild/scatter stay name-scoped** | Common symbols recycle; the two symbols players notice most stay bespoke. |
-| `aggressive` | `archetype + theme_style` for all | Max reuse, max cost drop, least visual specificity. |
-
-**The honest cost:** in `balanced`, a machine's "frog" may be a previous
-machine's "newt" — same archetype, same style, genuinely
-interchangeable at tile size, but not literally the symbol its name
-implies. For low/mid symbols glanced at during spins this is
-imperceptible; for the wild and scatter — the symbols players learn and
-watch for — it matters, which is why they stay name-scoped even in
-balanced. `aggressive` drops that protection; only pick it if cost
-dominates uniqueness for your stage.
-
-## 4. What changes in code (when approved)
-
-1. `schema.ts` — add optional `archetype` per symbol; `validateAndClamp`
-   coerces to the vocabulary or `other`; SYS prompt gains the list and
-   the "pick exactly one" instruction.
-2. `art-step.mts` `assetTag()` — compute the key by `REUSE_MODE`:
-   archetype-scoped for symbols (name-scoped for wild/scatter in
-   balanced), unchanged for backgrounds (already theme-only).
-3. `assets` table — add an `archetype` single-line-text field for
-   observability (see reuse working per bucket). [DONE in setup doc]
-4. No client change. No new dependency. Fully backward-compatible:
-   existing name-tagged assets keep serving under `strict`, and
-   `balanced` simply starts writing archetype-tagged rows alongside.
-
-## 5. Success measure
-
-Track mean `uses` per asset and assets-generated-per-machine before and
-after. Target: the 3rd+ machine of a common theme forges the majority of
-its symbols from the registry. If `balanced` produces visibly wrong
-symbols in playtest, fall back to `strict` (one env var) with zero code
-change — the knob is the safety net.
-
-## 6. Handoff to the VPS embedding version
-
-When the registry moves to Postgres with a vector index, `archetype`
-becomes a coarse pre-filter and the embedding does fine matching within
-it — this vocabulary doesn't get thrown away, it becomes the bucketing
-layer above the embedding. So building it now is not throwaway work; it's
-the first half of the eventual design.
-
----
-
-**Decision needed from Samuel:**
-1. Approve the vocabulary (§2) — add/remove buckets?
-2. Set the default `REUSE_MODE` — `balanced` proposed.
-3. Confirm wild/scatter stay name-scoped in `balanced`.
-
-
-## Addendum (post-launch fixes)
-Observed in production: within-machine duplicate assets (two same-archetype
-symbols resolving to one asset), palette clashes on reuse, over-broad
-character swapping, and subject-irrelevant art passing the critic.
-Fixes: within-machine key uniqueness; `palette` field + hue-compatibility
-gate (≤70°) on all reuse; humanoid-figure/deity-idol/mythic-beast are
-name-scoped in balanced; critic verifies the stated subject.
+  return Response.json(out);
+};

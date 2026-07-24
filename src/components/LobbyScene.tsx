@@ -28,7 +28,7 @@ export default function LobbyScene() {
         {/* god rays */}
         <div style={box({ left: 960, top: 630, width: 2600, height: 2600, transform: 'translate(-50%,-50%)', background: 'repeating-conic-gradient(from 0deg, rgba(255,215,180,.09) 0deg 2.4deg, transparent 2.4deg 12deg)', mixBlendMode: 'screen', WebkitMask: 'radial-gradient(circle, #000 0%, rgba(0,0,0,.4) 34%, transparent 62%)', mask: 'radial-gradient(circle, #000 0%, rgba(0,0,0,.4) 34%, transparent 62%)', animation: 'sw-rayspin 140s linear infinite' })} />
         {/* retro sun */}
-        <div style={box({ left: 960, top: 628, transform: 'translate(-50%,-50%)', width: 360, height: 360, borderRadius: '50%', overflow: 'hidden', background: 'radial-gradient(circle at 50% 40%, #fff7cf 0%, #ffe45e 17%, #ffab41 44%, #ff6187 70%, #ff2d95 100%)', animation: 'sw-sunpulse 6s ease-in-out infinite' })}>
+        <div style={box({ left: 960, top: 628, transform: 'translate(-50%,-50%)', width: 360, height: 360, borderRadius: '50%', overflow: 'hidden', background: 'radial-gradient(circle at 50% 40%, #fff7cf 0%, #ffe45e 17%, #ffab41 44%, #ff6187 70%, #ff2d95 100%)', boxShadow: '0 0 130px 34px rgba(255,120,170,.55), 0 0 320px 96px rgba(255,45,150,.34)', animation: 'sw-sunpulse 6s ease-in-out infinite' })}>
           <div style={box({ left: 0, right: 0, bottom: 0, height: '60%', background: 'repeating-linear-gradient(180deg, transparent 0 3px, #100320 3px 5px, transparent 5px 12px, #100320 12px 15px, transparent 15px 26px, #100320 26px 30px, transparent 30px 45px, #100320 45px 50px, transparent 50px 70px, #100320 70px 76px)' })} />
         </div>
         {/* anamorphic streak */}
